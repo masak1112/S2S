@@ -3,16 +3,14 @@ from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
 from collections import OrderedDict
-import matplotlib.pyplot as plt
 import wandb
-from utils.data_loader_multifiles import get_data_loader
+from utils.data_loader_multifiles import get_data_loader, get_infer_data
 from utils.YParams import YParams
-import os, shutil, sys
+import os, shutil
 import time
 import numpy as np
 import argparse
 import torch
-import torchvision
 from torchvision.utils import save_image
 import torch.cuda.amp as amp
 import torch.distributed as dist
@@ -20,39 +18,31 @@ from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
 logging_utils.config_logger()
-from apex import optimizers
+#from apex import optimizers
 from pathlib import Path
 import dask
-import cftime
 import xarray as xr
 import cf_xarray as cfxr
 from datetime import timedelta
-# import transformer_engine.pytorch as te
-# from transformer_engine.common import recipe
-# from transformer_engine.pytorch import fp8_autocast, fp8_model_init
 from torch.profiler import profile, record_function, ProfilerActivity
 import numpy as np
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 from utils.integrate import Integrator, forward_euler
-
-
-# fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
-#                                    amax_history_len=16,
-#                                    amax_compute_algo="max")
-
+# from mpi4py import MPI
 
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
 torch.set_float32_matmul_precision('high')
-
 torch.cuda.empty_cache() 
-
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-
+# Initialize MPI
+# comm = MPI.COMM_WORLD
+# rank = comm.Get_rank()
+# size = comm.Get_size()
 
 class Stepper():
     def count_parameters(self):
@@ -86,23 +76,24 @@ class Stepper():
             self.mask_output = params.mask_output
 
 
-        if params.log_to_wandb:
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project,
-                       entity=params.entity)
+        # if params.log_to_wandb:
+        #     wandb.init(config=params, name=params.name, group=params.group, project=params.project,
+        #                entity=params.entity, settings=wandb.Settings(_disable_stats=True) )
 
         logging.info('rank %d, begin data loader init' % world_rank)
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
-                                                                     num_inferences = params.num_inferences, validate = False)
+                                                                     num_inferences = params.num_inferences, validate = True)
+        print(f'Valid dataset length: {len(self.valid_dataset)}')
+        # self.infer_data_loader, self.infer_dataset = get_infer_data(params, params.data_dir, dist.is_initialized(),
+        #                                                              year_start=params.val_year_start,
+        #                                                              year_end=params.val_year_end, step=1462,
+        #                                                              num_inferences = params.num_inferences, validate = True)
 
         self.constant_boundary_data = self.valid_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
-
-
         logging.info('rank %d, data loader initialized' % world_rank)
-
-
 
         if params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -132,54 +123,32 @@ class Stepper():
         else:
             raise Exception("not implemented")
 
-        if params.log_to_wandb:
-            wandb.watch(self.model)
+        # if params.log_to_wandb:
+        #     wandb.watch(self.model)
 
-        if dist.is_initialized():
-            self.model = DistributedDataParallel(self.model,
-                                                 device_ids=[
-                                                     params.local_rank],
-                                                 output_device=[params.local_rank], find_unused_parameters=True)
+        # if dist.is_initialized():
+        #     self.model = DistributedDataParallel(self.model,
+        #                                          device_ids=[params.local_rank],
+        #                                          output_device=[params.local_rank], 
+        #                                          find_unused_parameters=True)
 
         self.iters = 0
         self.startEpoch = 0
         #if params.resuming:
         self.restore_checkpoint(params.checkpoint_path)
-
         self.epoch = self.startEpoch
 
-
-        '''if params.log_to_screen:
-      logging.info(self.model)'''
-        if params.log_to_screen:
-            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
 
     def predict(self):
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
 
         start = time.time()
-        #tr_time, data_time, train_logs = self.train_one_epoch()
         if self.async_save:
-            valid_time, valid_logs = asyncio.run(self.validate_one_epoch_async())
+            valid_time, valid_logs = asyncio.run(self.validate_one_epoch())
         else:
-            valid_time, valid_logs = self.validate_one_epoch_sync()
+            valid_time, valid_logs = self.validate_one_epoch()
         
-
-  
-        #if self.world_rank == 0:
-        #    if self.params.save_checkpoint:
-        #        # checkpoint at the end of every epoch
-        #        self.save_checkpoint(self.params.checkpoint_path)
-        #        if valid_logs['valid_loss'] <= best_valid_loss:
-        #            # logging.info('Val loss improved from {} to {}'.format(best_valid_loss, valid_logs['valid_loss']))
-        #            self.save_checkpoint(self.params.best_checkpoint_path)
-        #            best_valid_loss = valid_logs['valid_loss']
-
-        #if self.params.log_to_screen:
-        #    logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
-        #    logging.info('Train loss: {}. Surface MSE: {}. Upper Air MSE:{}'.format(
-        #        train_logs['loss'], valid_logs['Surface MSE'], valid_logs['Upper Air MSE']))
 
 
     async def save_prediction_async(self, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction = None):
@@ -202,77 +171,80 @@ class Stepper():
             self.save_time += time.time() - save_start
             queue.task_done()
 
-    async def validate_one_epoch_async(self):
+    def validate_one_epoch(self):
         self.model.eval()
         total_start = time.time()
         data_time = 0
         inference_time = 0
         self.save_time = 0
-
-        save_queue = asyncio.Queue()
-        save_task = asyncio.create_task(self.save_results(save_queue))
-
+        
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
-                data_start = time.time()
-                val_input_surface, val_input_upper_air, val_varying_boundary_data = map(
-                    lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
-                
-                start_idx = data[-1][0,0].item()
-                start_hour_diff = data[-1][0,1].item()
-                start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) + timedelta(hours = start_hour_diff)
-                pred_year_hours = (self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) - 
-                    self.valid_dataset.datetime_class(self.params.val_year_start, 1, 1, hour = 0)).seconds // 3600
-                pred_idx = (pred_year_hours + start_hour_diff) // self.params.timedelta_hours
-                data_time += time.time() - data_start
-
-                inference_start = time.time()
-                val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                dtype = np.float32)
-                val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
-                                                val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                                    val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                dtype = np.float32)
-                if self.params.has_diagnostic:
-                    val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                    self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                    dtype = np.float32)
-                
-                val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-                
-
-                for time_step in range(self.params['inference_steps']):
+        
+                if self.params.predict_delta:
                     if self.params.has_diagnostic:
-                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.model(val_input_surface, 
-                                                                                            self.constant_boundary_data, 
-                                                                                            val_varying_boundary_data[:,time_step],
-                                                                                            val_input_upper_air)
-                        val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_transform(val_out_diagnostic.to('cpu')).numpy()
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_target_surface_delta, val_target_upper_air_delta,\
+                            val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     else:
-                        val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                            val_varying_boundary_data[:,time_step], val_input_upper_air)
-                    if self.params.predict_delta:
-                        val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
-                    else:
-                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
-                    val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                    val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-
-                inference_time += time.time() - inference_start
-
-                # Queue the results for asynchronous saving
-                if self.params.has_diagnostic:
-                    await save_queue.put((val_output_surface.copy(), val_output_upper_air.copy(), val_output_diagnostic.copy(), start_time, pred_idx))
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_surface_delta, val_target_upper_air_delta,\
+                            val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 else:
-                    await save_queue.put((val_output_surface.copy(), val_output_upper_air.copy(), start_time, pred_idx))
+                    if self.params.has_diagnostic:
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    else:
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
-        # Signal that we're done
-        await save_queue.put(None)
-        # Wait for all saves to complete
-        await save_task
+                # get the correct start times for each sample
+                start_times = []
+                for i in range(times.shape[0]):  # Iterate over all samples in the batch
+                    start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
+                    start_times.append(start_time)
 
+                time_start_ens = time.time()
+                for ens_id in list(range(30)):
+
+                    val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
+                                                    val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                    dtype = np.float32)
+                    val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
+                                                    val_input_upper_air.shape[1], val_input_upper_air.shape[2],
+                                                        val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
+                                                    dtype = np.float32)
+                    if self.params.has_diagnostic:
+                        val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
+                                                        self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                        dtype = np.float32)
+                    
+                    val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
+                    val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+                
+
+                    for time_step in range(self.params['inference_steps']):
+                        if self.params.has_diagnostic:
+                            val_out_surface, val_out_upper_air, val_out_diagnostic,mu, sigma = self.model(val_input_surface, 
+                                                                                                self.constant_boundary_data, 
+                                                                                                val_varying_boundary_data[:,time_step],
+                                                                                                val_input_upper_air)
+                            val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_transform(val_out_diagnostic.to('cpu')).numpy()
+                        else:
+                            val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                                val_varying_boundary_data[:,time_step], val_input_upper_air)
+                        if self.params.predict_delta:
+                            val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
+                        else:
+                            val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
+                        
+                        # print("val_input_surface shape:", val_input_surface.shape) #1, 9, 180, 360
+                        # print("val_input_upper_air shape:", val_input_upper_air.shape) # 1, 5, 17, 180, 360
+                        val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
+                        val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+                        
+                    self.save_prediction(val_output_surface, val_output_upper_air , start_times, diagnostic_prediction = None, ens_id=ens_id)
+                time_end_ens = time.time()  
+                print(f"Ensemble {ens_id} took {time_end_ens - time_start_ens:.2f} seconds to process.")
+                
         total_time = time.time() - total_start
 
         logs = {
@@ -284,91 +256,12 @@ class Stepper():
 
         logging.info(f"Validation logs: {logs}")
 
-        if self.params.log_to_wandb:
-            wandb.log(logs, step=self.epoch)
-
+        # if self.params.log_to_wandb:
+        #     wandb.log(logs, step=self.epoch)
         return total_time, logs
     
 
-    def validate_one_epoch_sync(self):
-        self.model.eval()
-        total_start = time.time()
-        data_time = 0
-        inference_time = 0
-        save_time = 0
 
-        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
-            for i, data in enumerate(self.valid_data_loader, 0):
-                data_start = time.time()
-                val_input_surface, val_input_upper_air, val_varying_boundary_data = map(
-                    lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
-                
-                start_idx = data[-1][0,0].item()
-                start_hour_diff = data[-1][0,1].item()
-                start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) + timedelta(hours = start_hour_diff)
-                pred_year_hours = (self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) - 
-                    self.valid_dataset.datetime_class(self.params.val_year_start, 1, 1, hour = 0)).seconds // 3600
-                pred_idx = (pred_year_hours + start_hour_diff) // self.params.timedelta_hours
-                data_time += time.time() - data_start
-
-                inference_start = time.time()
-                val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                dtype = np.float32)
-                val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
-                                                val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                                    val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                dtype = np.float32)
-                if self.params.has_diagnostic:
-                    val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                dtype = np.float32)
-                
-                val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-
-                for time_step in range(self.params['inference_steps']):
-                    if self.params.has_diagnostic:
-                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.model(val_input_surface, 
-                                                                                                                     self.constant_boundary_data, 
-                                                                                                                     val_varying_boundary_data[:,time_step],
-                                                                                                                     val_input_upper_air)
-                        val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
-                    else:
-                        val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                            val_varying_boundary_data[:,time_step], val_input_upper_air)
-                    if self.params.predict_delta:
-                        val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
-                    else:
-                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
-                    val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                    val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-
-                inference_time += time.time() - inference_start
-
-                save_start = time.time()
-                if self.params.has_diagnostic:
-                    self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx, val_output_diagnostic)
-                else:
-                    self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx)
-                save_time += time.time() - save_start
-
-        total_time = time.time() - total_start
-
-        logs = {
-            'total_time': total_time,
-            'data_time': data_time,
-            'inference_time': inference_time,
-            'save_time': save_time
-        }
-
-        logging.info(f"Validation logs: {logs}")
-
-        if self.params.log_to_wandb:
-            wandb.log(logs, step=self.epoch)
-
-        return total_time, logs
-        
 
 
     def save_checkpoint(self, checkpoint_path, model=None):
@@ -382,26 +275,8 @@ class Stepper():
                     'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
-    # def restore_checkpoint(self, checkpoint_path):
-    #     """ We intentionally require a checkpoint_dir to be passed
-    #         in order to allow Ray Tune to use this function """
-    #     checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
-    #     try:
-    #         self.model.load_state_dict(checkpoint['model_state'])
-    #     except:
-    #         new_state_dict = OrderedDict()
-    #         for key, val in checkpoint['model_state'].items():
-    #             name = key[7:]
-    #             new_state_dict[name] = val
-    #         self.model.load_state_dict(new_state_dict)
-    #     self.iters = checkpoint['iters']
-    #     self.startEpoch = checkpoint['epoch']
-    #     print('START EPOCH:', self.startEpoch)
-    #     # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
-    #     if self.params.resuming:
-    #         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     def restore_checkpoint(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         model_state_dict = checkpoint['model_state']
 
         # Remove 'module.' prefix if it exists
@@ -409,28 +284,25 @@ class Stepper():
         for k, v in model_state_dict.items():
             name = k[7:] if k.startswith('module.') else k
             new_state_dict[name] = v
-
         # Filter out unnecessary keys
         model_dict = self.model.state_dict()
         new_state_dict = {k: v for k, v in new_state_dict.items() if k in model_dict}
-
         # Update model_dict
         model_dict.update(new_state_dict)
-
         # Load the filtered state dict
         self.model.load_state_dict(model_dict, strict=False)
-
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         print('START EPOCH:', self.startEpoch)
-
         # Restore optimizer state if resuming
         if self.params.resuming and 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        
         print("Checkpoint restored successfully")
 
-    def save_prediction(self, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction = None):
+
+    def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
+        print("Saving predictions...")
+        
         inference_results_dir = self.params['experiment_dir']
         savedir = os.path.join(inference_results_dir, 'predictions')
         if not os.path.isdir(savedir):
@@ -439,17 +311,16 @@ class Stepper():
         if not os.path.exists(pred_config):
             shutil.copy(params['config_filepath'], pred_config)
         for sample in range(surface_prediction.shape[0]):
-            time_range = xr.cftime_range(start_time + timedelta(hours = self.params['timedelta_hours'] * sample), 
-                                         start_time + timedelta(hours = self.params['timedelta_hours'] * (sample + self.params['inference_steps'])),
+            time_range = xr.cftime_range(start_times[sample] + timedelta(hours = self.params['timedelta_hours'] * sample), 
+                                         start_times[sample] + timedelta(hours = self.params['timedelta_hours'] * (sample + self.params['inference_steps'])),
                                          freq = "%dh" % self.params['timedelta_hours'], inclusive = "both")
             coordinates = {'time': time_range,
-                               self.params.lev: self.valid_dataset.data_dss[0][self.params.lev].values,
-                               'lat': self.valid_dataset.data_dss[0].lat.values,
-                               'lon': self.valid_dataset.data_dss[0].lon.values}
-            filename = '%s_%s_%dh_%dstep_%d_%d.nc' % (self.params.nettype, self.params.run_num, self.params['timedelta_hours'],
-                                                      self.params['inference_steps'], self.params.val_year_start, 
-                                                      pred_idx + sample)
-            print(filename)
+                               self.params.lev: self.params.levels,
+                               'lat': self.params.lat,
+                               'lon': self.params.lon}
+            filename = '%s_%s_%dh_%dstep_%s_ens_%s.nc' % (self.params.nettype, self.params.run_num, self.params['timedelta_hours'],
+                                                      self.params['inference_steps'], start_times[sample].strftime('%Y%m%d%H'), ens_id)
+
             dataset = xr.Dataset(data_vars = dict(),
                                  coords = coordinates,
                                  attrs = dict(description = f"Prediction from {self.params.nettype} model run {self.params.run_num}"))
@@ -466,27 +337,100 @@ class Stepper():
                                                 'lat': dataset.lat.values,
                                                 'lon': dataset.lon.values
                                                      })
-                da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
+                #da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
             for idx, var in enumerate(self.valid_dataset.upper_air_variables):
                 da = xr.DataArray(data = upper_air_prediction[sample, :, idx],
                                   dims=["time", self.params.lev, "lat", "lon"],
                                   coords = coordinates)
-                da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
+                #da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
-            if self.params.has_diagnostic:
+            if self.params.has_diagnostic and diagnostic_prediction is not None:
                 for idx, var in enumerate(self.valid_dataset.diagnostic_variables):
-                    da = xr.DataArray(data = diagnostic_prediction[sample, :, idx],
+                    da = xr.DataArray(data = diagnostic_prediction[sample, :, idx].cpu(),
                                     dims=["time", "lat", "lon"],
                                     coords = {'time': time_range,
                                                     'lat': dataset.lat.values,
                                                     'lon': dataset.lon.values
                                                         })
-                    da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
+                    #da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                     dataset[var] = da
             dataset = dataset.chunk({'time': 1, self.params.lev: 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
-            dataset.to_netcdf(os.path.join(savedir, filename))
+            dataset.to_netcdf(os.path.join(savedir, filename), 'w')
+            print('Done saving to directiory: ', os.path.join(savedir, filename))
+
+
+    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
+        batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
+        # print(f"TIME STEPS ARE: {time_steps}")
+        datasets = []
+
+        for sample in range(batch_size):
+            # time_range = xr.cftime_range(
+            #     start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
+            #     periods=time_steps,
+            #     freq=f"{params['timedelta_hours']}h"
+            # )
+            # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            if acc:
+            # For ACC, create time_range for all time steps
+                # time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
+                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(1, time_steps + 1)]
+                # print(time_range)
+            else:
+            # For specific lead times, use forecast_lead_times
+                time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+
+            # Determine the level coordinate name based on params.lev
+            level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
+
+            coordinates = {
+                'time': time_range,
+                level_coord_name: valid_dataset.levels,
+                'lat': self.params.lat,
+                'lon': self.params.lon
+            }
+
+            dataset = xr.Dataset(
+                coords=coordinates,
+                attrs=dict(description=f"Prediction from {params.nettype} model run, sample {sample}")
+            )
+
+            for idx, var in enumerate(valid_dataset.surface_variables):
+                da = xr.DataArray(
+                    data=surface_prediction[sample, :, idx],
+                    dims=["time", "lat", "lon"],
+                    coords={'time': time_range,
+                            'lat': dataset.lat.values,
+                            'lon': dataset.lon.values}
+                )
+                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                dataset[var] = da
+
+            if type(diagnostic_prediction) is not type(None):
+                for idx, var in enumerate(valid_dataset.diagnostic_variables):
+                    da = xr.DataArray(
+                        data=diagnostic_prediction[sample, :, idx],
+                        dims=["time", "lat", "lon"],
+                        coords={'time': time_range,
+                                'lat': dataset.lat.values,
+                                'lon': dataset.lon.values}
+                    )
+                    #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                    dataset[var] = da
+
+            for idx, var in enumerate(valid_dataset.upper_air_variables):
+                da = xr.DataArray(
+                    data=upper_air_prediction[sample, :, idx],
+                    dims=["time", level_coord_name, "lat", "lon"],
+                    coords=coordinates
+                )
+                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                dataset[var] = da
+            datasets.append(dataset)
+        return datasets
 
             
 
@@ -495,19 +439,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_num", default='0189', type=str)
     parser.add_argument("--yaml_config", default='config/PANGU_NEW_0189.yaml', type=str)
-    parser.add_argument("--config", default='PLASIM', type=str)
+    parser.add_argument("--config", default='S2S', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    #parser.add_argument("--inference_steps", default=0, type=int)
-    #parser.add_argument("--num_inferences", default = 0, type = int)
     parser.add_argument("--run_iter", default=1, type=int)
-    parser.add_argument("--async_save", default = True, action="store_true", help="Enable asynchronous saving")
-
+    parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
-
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
@@ -523,11 +463,6 @@ if __name__ == '__main__':
     else:
         params['has_diagnostic'] = False
     print(f'Has diagnostic: {params.has_diagnostic}')
-    #params['num_inferences'] = args.num_inferences
-    
-    #params['world_size'] = 1
-    #os.environ['WANDB_MODE'] = 'offline'
-
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
     if 'WORLD_SIZE' in os.environ:
@@ -552,7 +487,7 @@ if __name__ == '__main__':
 
         args.gpu = local_rank
         world_rank = dist.get_rank()
-        # print("##########WORLD RANK: TESTING ", world_rank)
+        print("##########WORLD RANK: TESTING ", world_rank)
 
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
