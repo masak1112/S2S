@@ -596,3 +596,16 @@ class GetDataset(Dataset):
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data
             else:
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
+            
+def get_infer_data(params, files_pattern, distributed, year_start, year_end, step=100, num_inferences = 0, validate = False):
+
+    dataset = GetDataset(params, files_pattern, year_start, year_end, False, num_inferences, validate)
+    dataloader = DataLoader(dataset,
+                            batch_size=int(params.batch_size),
+                            num_workers=params.num_data_workers,
+                            shuffle=False,  # (sampler is None),
+                            sampler=None,# if train else None,
+                            drop_last=True,
+                            pin_memory=torch.cuda.is_available())
+
+    return dataloader, dataset
