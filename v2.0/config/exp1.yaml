@@ -28,7 +28,7 @@ base_config: &BASE
   num_ensemble_members : 4
   fresh_start: False
   checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/1/training_checkpoints/ckpt.tar'
-
+  num_ensemble_members_inference : 30
 
 S2S: &S2S
   <<: *BASE
@@ -96,7 +96,6 @@ S2S: &S2S
   diagnostic_gif: False
   diagnostic_spectra: False
   forecast_lead_times: [1, 3, 5, 10, 15]
-
   lev: 'plev'
   num_inferences: 100
   use_reentrant: False
