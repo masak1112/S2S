@@ -18,10 +18,6 @@ from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
 logging_utils.config_logger()
-<<<<<<< HEAD
-=======
-#from apex import optimizers
->>>>>>> s2s-dev-bing-vae-crps-eval
 from pathlib import Path
 import dask
 import xarray as xr
