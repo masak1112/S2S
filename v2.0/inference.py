@@ -179,30 +179,30 @@ class Stepper():
         
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
-        
-                if self.params.predict_delta:
-                    if self.params.has_diagnostic:
-                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_target_surface_delta, val_target_upper_air_delta,\
-                            val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    else:
-                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_surface_delta, val_target_upper_air_delta,\
-                            val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                else:
-                    if self.params.has_diagnostic:
-                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
-                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    else:
-                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
-                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-
-                # get the correct start times for each sample
-                start_times = []
-                for i in range(times.shape[0]):  # Iterate over all samples in the batch
-                    start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
-                    start_times.append(start_time)
-
-                time_start_ens = time.time()
                 for ens_id in list(range(30)):
+                    if self.params.predict_delta:
+                        if self.params.has_diagnostic:
+                            val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_target_surface_delta, val_target_upper_air_delta,\
+                                val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                        else:
+                            val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_surface_delta, val_target_upper_air_delta,\
+                                val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    else:
+                        if self.params.has_diagnostic:
+                            val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
+                                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                        else:
+                            val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
+                                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+
+                    # get the correct start times for each sample
+                    start_times = []
+                    for i in range(times.shape[0]):  # Iterate over all samples in the batch
+                        start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
+                        start_times.append(start_time)
+
+                    time_start_ens = time.time()
+                
 
                     val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
                                                     val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
@@ -222,7 +222,7 @@ class Stepper():
 
                     for time_step in range(self.params['inference_steps']):
                         if self.params.has_diagnostic:
-                            val_out_surface, val_out_upper_air, val_out_diagnostic,mu, sigma = self.model(val_input_surface, 
+                            val_out_surface, val_out_upper_air, val_out_diagnostic, mu, sigma = self.model(val_input_surface, 
                                                                                                 self.constant_boundary_data, 
                                                                                                 val_varying_boundary_data[:,time_step],
                                                                                                 val_input_upper_air)
@@ -235,10 +235,10 @@ class Stepper():
                         else:
                             val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                         
-                        # print("val_input_surface shape:", val_input_surface.shape) #1, 9, 180, 360
-                        # print("val_input_upper_air shape:", val_input_upper_air.shape) # 1, 5, 17, 180, 360
+          
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+                    
                         
                     self.save_prediction(val_output_surface, val_output_upper_air , start_times, diagnostic_prediction = None, ens_id=ens_id)
                 time_end_ens = time.time()  
