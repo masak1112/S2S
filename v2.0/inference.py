@@ -11,7 +11,6 @@ import time
 import numpy as np
 import argparse
 import torch
-from torchvision.utils import save_image
 import torch.cuda.amp as amp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
@@ -23,13 +22,10 @@ import dask
 import xarray as xr
 import cf_xarray as cfxr
 from datetime import timedelta
-from torch.profiler import profile, record_function, ProfilerActivity
-import numpy as np
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 from utils.integrate import Integrator, forward_euler
-# from mpi4py import MPI
 
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -149,36 +145,15 @@ class Stepper():
             valid_time, valid_logs = self.validate_one_epoch()
         
 
-
-    async def save_prediction_async(self, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction = None):
-        await asyncio.to_thread(self.save_prediction, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction)
-
-    async def save_results(self, queue):
-        while True:
-            item = await queue.get()
-            if item is None:
-                break
-            if self.params.has_diagnostic:
-                surface_prediction, upper_air_prediction, diagnostic_prediction, start_time, pred_idx = item
-            else:
-                surface_prediction, upper_air_prediction, start_time, pred_idx = item
-            save_start = time.time()
-            if self.params.has_diagnostic:
-                await self.save_prediction_async(surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction)
-            else:
-                await self.save_prediction_async(surface_prediction, upper_air_prediction, start_time, pred_idx)
-            self.save_time += time.time() - save_start
-            queue.task_done()
-
     def validate_one_epoch(self):
         self.model.eval()
         total_start = time.time()
-        data_time = 0
-        inference_time = 0
-        self.save_time = 0
-        
+
+    
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
+
+
                 for ens_id in list(range(30)):
                     if self.params.predict_delta:
                         if self.params.has_diagnostic:
@@ -194,16 +169,13 @@ class Stepper():
                         else:
                             val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                                 lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-
-                    # get the correct start times for each sample
+                    
                     start_times = []
                     for i in range(times.shape[0]):  # Iterate over all samples in the batch
                         start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
                         start_times.append(start_time)
-
-                    time_start_ens = time.time()
                 
-
+                
                     val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
                                                     val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
                                                     dtype = np.float32)
@@ -222,7 +194,7 @@ class Stepper():
 
                     for time_step in range(self.params['inference_steps']):
                         if self.params.has_diagnostic:
-                            val_out_surface, val_out_upper_air, val_out_diagnostic, mu, sigma = self.model(val_input_surface, 
+                            val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
                                                                                                 self.constant_boundary_data, 
                                                                                                 val_varying_boundary_data[:,time_step],
                                                                                                 val_input_upper_air)
@@ -235,29 +207,22 @@ class Stepper():
                         else:
                             val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                         
-          
+            
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
                     
-                        
-                    self.save_prediction(val_output_surface, val_output_upper_air , start_times, diagnostic_prediction = None, ens_id=ens_id)
-                time_end_ens = time.time()  
-                print(f"Ensemble {ens_id} took {time_end_ens - time_start_ens:.2f} seconds to process.")
+    
+                    if self.params.has_diagnostic:
+                        self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
+                    else:
+                        self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+        
                 
         total_time = time.time() - total_start
 
-        logs = {
-            'total_time': total_time,
-            'data_time': data_time,
-            'inference_time': inference_time,
-            'save_time': self.save_time
-        }
-
-        logging.info(f"Validation logs: {logs}")
-
         # if self.params.log_to_wandb:
         #     wandb.log(logs, step=self.epoch)
-        return total_time, logs
+        return total_time
     
 
 
@@ -301,7 +266,7 @@ class Stepper():
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
         print("Saving predictions...")
-        
+
         inference_results_dir = self.params['experiment_dir']
         savedir = os.path.join(inference_results_dir, 'predictions')
         if not os.path.isdir(savedir):
@@ -309,10 +274,14 @@ class Stepper():
         pred_config = os.path.join(self.params['experiment_dir'], os.path.basename(params['config_filepath']))
         if not os.path.exists(pred_config):
             shutil.copy(params['config_filepath'], pred_config)
+        print("The sufrace prediction shape is: ", surface_prediction.shape)
         for sample in range(surface_prediction.shape[0]):
-            time_range = xr.cftime_range(start_times[sample] + timedelta(hours = self.params['timedelta_hours'] * sample), 
+            print("start_times[sample]:", start_times  )
+            print("sample:", sample)
+            time_range = xr.cftime_range(start_times[sample]+  timedelta(hours = self.params['timedelta_hours'] * sample) , 
                                          start_times[sample] + timedelta(hours = self.params['timedelta_hours'] * (sample + self.params['inference_steps'])),
-                                         freq = "%dh" % self.params['timedelta_hours'], inclusive = "both")
+                                         freq = "%dh" % self.params['timedelta_hours'], inclusive = "both") #
+            print(f"Time range for sample: {time_range}")
             coordinates = {'time': time_range,
                                self.params.lev: self.params.levels,
                                'lat': self.params.lat,
@@ -320,6 +289,8 @@ class Stepper():
             filename = '%s_%s_%dh_%dstep_%s_ens_%s.nc' % (self.params.nettype, self.params.run_num, self.params['timedelta_hours'],
                                                       self.params['inference_steps'], start_times[sample].strftime('%Y%m%d%H'), ens_id)
 
+            print(f"filenmae for start times:",start_times[sample] )
+            print("_____________________________________________")
             dataset = xr.Dataset(data_vars = dict(),
                                  coords = coordinates,
                                  attrs = dict(description = f"Prediction from {self.params.nettype} model run {self.params.run_num}"))
@@ -346,7 +317,7 @@ class Stepper():
                 dataset[var] = da
             if self.params.has_diagnostic and diagnostic_prediction is not None:
                 for idx, var in enumerate(self.valid_dataset.diagnostic_variables):
-                    da = xr.DataArray(data = diagnostic_prediction[sample, :, idx].cpu(),
+                    da = xr.DataArray(data = diagnostic_prediction[sample, :, idx],
                                     dims=["time", "lat", "lon"],
                                     coords = {'time': time_range,
                                                     'lat': dataset.lat.values,
@@ -358,6 +329,7 @@ class Stepper():
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             dataset.to_netcdf(os.path.join(savedir, filename), 'w')
             print('Done saving to directiory: ', os.path.join(savedir, filename))
+            
 
 
     def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):

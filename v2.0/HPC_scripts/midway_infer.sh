@@ -53,6 +53,6 @@ config_file=../config/exp1.yaml
 # /project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
 #/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1
 
-
+#/project/pedramh/bing/env/bin/python
 /project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE /project/pedramh/bing/PanguWeather/v2.0/inference.py --yaml_config=$config_file --run_num=1
 
