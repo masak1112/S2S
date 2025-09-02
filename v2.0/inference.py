@@ -274,18 +274,15 @@ class Stepper():
         pred_config = os.path.join(self.params['experiment_dir'], os.path.basename(params['config_filepath']))
         if not os.path.exists(pred_config):
             shutil.copy(params['config_filepath'], pred_config)
-        print("The sufrace prediction shape is: ", surface_prediction.shape)
         for sample in range(surface_prediction.shape[0]):
-            print("start_times[sample]:", start_times  )
-            print("sample:", sample)
             time_range = xr.cftime_range(start_times[sample]+  timedelta(hours = self.params['timedelta_hours'] * sample) , 
                                          start_times[sample] + timedelta(hours = self.params['timedelta_hours'] * (sample + self.params['inference_steps'])),
                                          freq = "%dh" % self.params['timedelta_hours'], inclusive = "both") #
-            print(f"Time range for sample: {time_range}")
+          
             coordinates = {'time': time_range,
-                               self.params.lev: self.params.levels,
-                               'lat': self.params.lat,
-                               'lon': self.params.lon}
+                               'level': self.params.levels, 
+                               'latitude': self.params.lat,
+                               'longitude': self.params.lon}
             filename = '%s_%s_%dh_%dstep_%s_ens_%s.nc' % (self.params.nettype, self.params.run_num, self.params['timedelta_hours'],
                                                       self.params['inference_steps'], start_times[sample].strftime('%Y%m%d%H'), ens_id)
 
@@ -295,37 +292,43 @@ class Stepper():
                                  coords = coordinates,
                                  attrs = dict(description = f"Prediction from {self.params.nettype} model run {self.params.run_num}"))
             # print("Adding attributes to coordinates")
-            dataset[self.params.lev].attrs['axis'] = 'Z'
-            dataset['lat'].attrs['axis'] = 'Y'
-            dataset['lon'].attrs['axis'] = 'X'
-            dataset[self.params.lev].attrs['positive'] = 'down' # this litle line cost me half a day of work. It's for guess_coord_axis to work properly.
+            dataset["level"].attrs['axis'] = 'Z'
+            dataset['latitude'].attrs['axis'] = 'Y'
+            dataset['longitude'].attrs['axis'] = 'X'
+            dataset["level"].attrs['positive'] = 'down' # this litle line cost me half a day of work. It's for guess_coord_axis to work properly.
             dataset = dataset.cf.guess_coord_axis()
             for idx, var in enumerate(self.valid_dataset.surface_variables):
                 da = xr.DataArray(data = surface_prediction[sample, :, idx],
-                                  dims=["time", "lat", "lon"],
+                                  dims=["time", "latitude", "longitude"],
                                   coords = {'time': time_range,
-                                                'lat': dataset.lat.values,
-                                                'lon': dataset.lon.values
+                                                'latitude': dataset.latitude.values,
+                                                'longitude': dataset.longitude.values
                                                      })
                 #da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
             for idx, var in enumerate(self.valid_dataset.upper_air_variables):
                 da = xr.DataArray(data = upper_air_prediction[sample, :, idx],
-                                  dims=["time", self.params.lev, "lat", "lon"],
+                                  dims=["time", "level", "latitude", "longitude"],
                                   coords = coordinates)
                 #da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
             if self.params.has_diagnostic and diagnostic_prediction is not None:
                 for idx, var in enumerate(self.valid_dataset.diagnostic_variables):
                     da = xr.DataArray(data = diagnostic_prediction[sample, :, idx],
-                                    dims=["time", "lat", "lon"],
+                                    dims=["time", "latitude", "longitude"],
                                     coords = {'time': time_range,
-                                                    'lat': dataset.lat.values,
-                                                    'lon': dataset.lon.values
+                                                    'latitude': dataset.latitude.values,
+                                                    'longitude': dataset.longitude.values
                                                         })
                     #da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                     dataset[var] = da
-            dataset = dataset.chunk({'time': 1, self.params.lev: 1})
+
+            print("Added all variables to dataset") 
+            dataset["latitude"] = dataset["latitude"].astype('float32').assign_attrs({'long_name': 'Latitude', 'unit': 'degrees_north'})  
+            dataset["longitude"] = dataset["longitude"].astype('float32').assign_attrs({'long_name': 'Longitude', 'unit': 'degrees_east'})  
+            dataset["time"] = dataset["time"].assign_attrs({'long_name': "Forecast Valid Time"}) 
+            dataset["level"] = dataset["level"].astype('float32').assign_attrs({'long_name': 'Level', 'unit': 'hPa'})        
+            dataset = dataset.chunk({'time': 1, "level": 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             dataset.to_netcdf(os.path.join(savedir, filename), 'w')
             print('Done saving to directiory: ', os.path.join(savedir, filename))
