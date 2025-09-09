@@ -1,78 +1,95 @@
-# PanguWeather
-v1.0 - Reimplementation of Pangu-Weather paper
+# Introduction to subseasonal to seasonal forecats
 
-v2.0 - Modified implementation of PanguWeather, currently used for PanguPLASIM
+This project aims to develop an AI model for probabilistic forecasting at the subseasonal to seasonal timescale.
 
-# PanguPLASIM
+# Prepare your datasets
+The experiments rely on the ERA5 dataset. We have stored and processed the data in `.h5` format on the Midway, Derecho, and Stampede3 systems.
 
-## Code Locations
-Midway3: `/project/pedramh/awikner/PanguWeather/`
+ - For the user of Midway from RCC of the university of Chicago: the corresponding path to the data is: `/project/pedramh/h5data/h5data`
 
-FASTER: `/scratch/group/p.atm170020.000/PanguWeather-UC/`
+ - For the users of Derecho from NCAR: the corresponding path to the data is: `/glade/campaign/univ/uchi0014/yqsun/pangu_s2s/h5data`
 
-Anvil: `/anvil/projects/x-atm170020/awikner/PanguWeather`
+ - For the users of stampede3 system from TACC: the corresponding path to the data is: `/scratch/08198/tg874973/pangu-s2s/h5data`
 
-## Data Locations
 
-### Pressure Level Data
+# Installation
 
-Midway3: `/scratch/midway3/tvallabh/pangu_data/PLASIM/train_val_test_data_pl`
-
-FASTER: `/scratch/group/p.atm170020.000/PLASIM/data/train_val_test_data_pl/`
-
-Anvil: `/anvil/projects/x-atm170020/awikner/PLASIM/data/train_val_test_data_pl`
-
-### Sigma Level Data
-
-Midway3: `/scratch/midway2/awikner/PLASIM/data/train_val_test_data`
-
-FASTER: `/scratch/user/u.aw164890/PLASIM/train_val_test_data`
-
-Anvil: `/anvil/projects/x-atm170020/awikner/PLASIM/data/train_val_test_data`
-
-## Activating Environments
-
-In general, you should make your own virtual environment on top of the base conda environment.
-
-Midway3:
+## Access to the code 
+Clone this repository by running the following command in your personal target directory:
 
 ```
-ml python/anaconda-2023.09
-conda activate /project/pedramh/anaconda/py311
-source /home/awikner/venvs/pangu-wandb/bin/activate
+git clone https://github.com/envfluids/PanguWeather.git
 ```
 
-FASTER:
+To the source code by running the command:
 
 ```
-ml Anaconda3
-conda activate /scratch/group/p.atm170020.000/anaconda/py311
-source /home/u.aw164890/venvs/pangu/bin/activate
+cd src
 ```
 
-Anvil:
+## Change branch
+
+Once you access to the code repo, switch to the branch `bing_issue#011_add_evaluation_metric_jupiter` by the following command
 
 ```
-ml anaconda/2024.02-py311
-conda activate /anvil/projects/x-atm170020/anaconda/py311
-source /home/x-awikner/venvs/anvil/pangu/bin/activate
+git checkout --track origin/bing_issue#011_add_evaluation_metric_jupiter
 ```
 
-To create your own virtual environment on top of the existing conda environment, run:
+
+# Set up virtual enviornment
+
+The code can be set-up on different operating systems. The related virtual environment can be set up with the help of the `conda` command. The enviornment request is listed in the `src/enviornment.yml` file. You can simply use the following command:
+
 ```
-ml ${conda_module}
-conda activate ${conda_env_path}
-mkdir -p ~/venvs/${your_venv_name}
-python3 -m venv ~/venvs/${your_venv_name} --system-site-packages
-source ~/venvs/${your_venv_name}/bin/activate
-python3 -m pip install --upgrade pip setuptools wheel
-pip install everything else
+conda env create -f environment.yml --prefix /path/to/myenv
 ```
 
-## Getting Started
-1. Either clone or fork this repository from the `optim-dev` branch (this is the main branch we'll be using for optimization) and create and checkout your own branch from it.
-2. Before beginning a training or inference run, you'll first need to create a configuration file. These should be stored in the `v2.0/config` directory. The naming convention I've been using is `PANGU_PLASIM_${CLUSTER}_${RUN_NUM}.yaml`. Remember to use a `RUN_NUM` beginning with your assigned number.
-   The base configuration file you can edit to create your own can be found at `v2.0/config/BASE_CONFIG.yaml`.
-4. Edit your configuration file to set the parameters you'd like to use for the run. Remember to set the `data_dir` to point to the data location for the cluster you're using.
-5. If beginning a training run for the first time, log in to your weights and biases account first. This can be done by activating the environment using the information above, then running `wandb login`. You'll be prompted to open a link to login to your account, then will receive an access code to enter in the command line.
-6. To start a training, run `sbatch -J ${RUN_NUM} ${cluster}_training.sh ${RUN_NUM} ${CONFIG_FILE_PATH}`
+If you are on the Midway, Derecho and stampede3 system you can also use the virtual enviornment we already established and activite your env by conda: 
+
+- Midway: 
+```
+conda activate /project/pedramh/bing/env
+```
+
+- Derecho:
+```
+conda activate  /glade/work/zand/anaconda/py311
+```
+
+- Stampede3: 
+```
+conda activate /home1/10786/bgong1/stampede3/env
+```
+
+# Setup wandb account
+
+If beginning a training run for the first time, log in to your weights and biases account first. This can be done by activating the environment using the information above, then running `wandb login`. You'll be prompted to open a link to login to your account, then will receive an access code to enter in the command line.
+
+# Getting Started
+
+## Run the workflow using HPC script templates
+
+To help you submit the jobs to different systems, we prepare the HPC job submission templates under `src/HPC_scripts` for training and inference.
+
+For each template, you need to change your working directory path and configuration file path
+
+
+## Configure your yaml file for each experiment. 
+
+1. Before beginning a training or inference run, you'll first need to create a configuration file. These should be stored in the `src/config` directory. The naming convention I've been using is `exp${id}.yaml`.  You can use `exp1.yaml` as an example to run on Midway system.
+
+2. Edit your configuration file to set the parameters you'd like to use for the run. Remember to set the `data_dir` to point to the data location for the cluster you're using.
+
+
+4. To start a training/inference:
+
+- On Midway and Stampede3
+
+ run `sbatch ${cluster}_training.sh ` 
+
+
+- on Derecho:
+
+ run `qsub ncar_training.sh`
+
+
