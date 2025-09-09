@@ -19,6 +19,7 @@ echo "Job started at: {$TSTAMP}"
 Sqstat -u $USER
 echo nvidia-smi
 
+# Change to working directory
 cd /glade/work/bgong/PanguWeather2/PanguWeather/v2.0
 
 
@@ -60,7 +61,7 @@ else
     LAUNCHER+="--rdzv_backend=c10d --rdzv_endpoint=$MASTER_RANK "
 fi
 
-
+#Change config file and run_num here to run different experiments
 CMD="train.py --yaml_config=./config/exp3.yaml --run_num=3_workflow"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
