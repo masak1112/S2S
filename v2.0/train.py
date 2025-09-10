@@ -25,7 +25,7 @@ import logging
 import torch
 import torchvision
 from torchvision.utils import save_image
-import torch.cuda.amp as amp
+from torch.amp import autocast, GradScaler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -38,14 +38,19 @@ from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
+from utils.utils import log_memory_usage, log_gpu_memory   
+
 logging_utils.config_logger()
 torch._dynamo.config.optimize_ddp = False
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()           
+logging.info("Torch version: {}".format(torch.__version__))
 
-
+dist.init_process_group(backend='nccl', init_method='env://')
+world_rank = dist.get_rank()
+print(f"World rank: {world_rank}")
 
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
@@ -195,12 +200,12 @@ class Trainer():
         #self.setup_model()
         logging.info('Params' % params)
         
-
     def setup_model(self):
         # Set up model
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model = self.get_model()
         self.optimizer = self.get_optimizer()
+        self.scaler = GradScaler()
         if params.resuming:
             self.restore_checkpoint(params.checkpoint_path)
             logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
@@ -256,7 +261,8 @@ class Trainer():
             logging.info(f"Created directory: {output_dir}")
         return spectra_dir, diagnostics_dir, output_dir 
              
-
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
     def get_dataset(self):
         """
         setup data loader
@@ -370,8 +376,7 @@ class Trainer():
         else:
             raise Exception("not implemented")
         return mask_bool, land_mask
-        
-        
+              
     def get_model(self):
         """ 
         Get the model based on the nettype specified in params.
@@ -475,7 +480,6 @@ class Trainer():
 
         
 
-
     def setup_loss_fun(self):
         """
         Set up loss function to return the loss for pl, sfc and diagnoistic
@@ -562,7 +566,9 @@ class Trainer():
 
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
+            logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
             valid_time, valid_logs = self.validate_one_epoch()
+            logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
             torch.cuda.empty_cache()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
@@ -628,7 +634,8 @@ class Trainer():
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
 
-    
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
     def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
@@ -661,14 +668,14 @@ class Trainer():
                 if self.params.mode == "test" and i >= self.params.test_iterations:
                     logging.info("Test mode: only processing first 30 batches")
                     pbar.update(total_iterations - self.iters)
-                    break
+                    data_time += time.time() - data_start
+
                 else:
                     self.iters += 1
-
                     data_start = time.time()
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
                     data_time += time.time() - data_start
-
+                    logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
                     tr_start = time.time()
                     self.model.zero_grad()                
@@ -678,9 +685,12 @@ class Trainer():
                         target_diagnostic, target_surface, target_upper_air
                     )
                     
-                    loss.backward()
-                    self.optimizer.step()
-
+                    
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    tr_end_time = time.time()
+                    logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
 
@@ -727,20 +737,19 @@ class Trainer():
 
 
 
-
-
+    # @log_gpu_memory
     def _prepare_inputs_batch(self, data:torch.Tensor):
         """
         prepare input variables for each iteration from data loader.
         The return must contain input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
         """
         #Initilaise variables
-        input_surface = None
-        input_upper_air = None
-        target_surface = None
-        target_upper_air = None
-        target_diagnostic = None
-        varying_boundary_data = None
+        input_surface = 0
+        input_upper_air = 0
+        target_surface = 0
+        target_upper_air = 0
+        target_diagnostic = 0
+        varying_boundary_data = 0
         if self.params.has_diagnostic:
             input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
                 lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
@@ -793,28 +802,29 @@ class Trainer():
         loss_pl = 0 
         loss_sfc = 0
         loss_vae = 0
-        if self.params.has_diagnostic:
-            output_surface, output_upper_air, output_diagnostic, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
-                                                                varying_boundary_data, input_upper_air, 
-                                                                target_surface, target_upper_air,train = True)
-            loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
-            
-        else:
-            output_surface, output_upper_air, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
-                                                        varying_boundary_data, input_upper_air, 
-                                                        target_surface, target_upper_air, train = True)
+        with autocast(device_type="cuda"):
+            if self.params.has_diagnostic:
+                output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+                                                                    varying_boundary_data, input_upper_air, 
+                                                                    target_surface, target_upper_air,train = True)
+                loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                 
-        loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-        loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+            else: 
+                output_surface, output_upper_air, mu, sigma,  mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+                                                            varying_boundary_data, input_upper_air, 
+                                                            target_surface, target_upper_air, train = True)
+                
+            loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
+            loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
 
-        if self.params.has_diagnostic:
-            loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
-        else:
-            loss = (loss_sfc * 0.25) + loss_pl
+            if self.params.has_diagnostic:
+                loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+            else:
+                loss = (loss_sfc * 0.25) + loss_pl
 
-        if self.params.vae_loss:    
-            loss_vae = self.loss_vae(mu, sigma, mu_e2, sigma_e2)
-            loss += self.params.vae_loss_weight * loss_vae
+            if self.params.vae_loss:    
+                loss_vae = self.loss_vae(mu, sigma, mu2, sigma2)
+                loss += self.params.vae_loss_weight * loss_vae
 
 
         return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
@@ -922,7 +932,9 @@ class Trainer():
                 {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
         return valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse
-
+   
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
     def validate_one_epoch(self):
         if world_rank == 0:
             print("Validating...")
@@ -1492,7 +1504,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         try:
             self.model.load_state_dict(checkpoint['model_state'])
         except:
@@ -1567,14 +1579,14 @@ if __name__ == '__main__':
 
      
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        
         if 'derecho' in str(Path(__file__)):
             local_rank = args.local_rank
         else:
             local_rank = int(os.environ["LOCAL_RANK"])
 
         args.gpu = local_rank
-        world_rank = dist.get_rank()
+        
         # print("##########WORLD RANK: TESTING ", world_rank)
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
