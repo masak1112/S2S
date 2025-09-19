@@ -25,4 +25,6 @@ config_file=../config/exp1.yaml
 
 torchrun --standalone -m torch.distributed.launch --nproc_per_node=gpu ../train.py --yaml_config=$config_file --run_num=1stampede
 
+
+>>>>>>> refs/remotes/origin/bing_issue#004_vae_crps_v2
 #/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1

@@ -49,9 +49,18 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 # Launch your script using torch.distributed.launch
 # config_file=../config/PANGU_S2S_lr3b_midway.yaml
 config_file=../config/exp1.yaml
+<<<<<<< HEAD
 
 #train command
 # /project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
+=======
+<<<<<<< HEAD
+/project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
+=======
+#train command
+# /project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
+>>>>>>> c6c1bde0c33806a89d2cfef49aa3c12571bb1fa5
+>>>>>>> refs/remotes/origin/bing_issue#004_vae_crps_v2
 #/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1
 
 #Inference 
