@@ -27,7 +27,7 @@ base_config: &BASE
   mode: 'train'
   num_ensemble_members : 4
   fresh_start: False
-  checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/1/training_checkpoints/training_checkpoints_orgi_crps.tar'
+  checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/2/training_checkpoints/training_checkpoints_orgi_crps.tar'
   num_ensemble_members_inference : 30
 
 S2S: &S2S
@@ -54,8 +54,8 @@ S2S: &S2S
   mask_output: False
   train_year_start: 1979
   train_year_end: 2018
-  val_year_start: 2018
-  val_year_end: 2019
+  val_year_start: 2019
+  val_year_end: 2020
   data_timedelta_hours: 6
   surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
   surface_std: 'pangu_s2s_1979-2018_surface_std.nc'
@@ -95,9 +95,9 @@ S2S: &S2S
   diagnostic_acc: False
   diagnostic_gif: False
   diagnostic_spectra: False
-  forecast_lead_times: [1, 3, 5, 10, 15, 20, 30, 45]
+  forecast_lead_times: [1, 5, 10, 15, 20, 30, 45]
   lev: 'plev'
-  num_inferences: 1000
+  num_inferences: 10000
   use_reentrant: False
   checkpointing: 2
   lat: [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, 

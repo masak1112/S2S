@@ -128,12 +128,7 @@ class Stepper():
     def predict(self):
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
-
-        start = time.time()
-        if self.async_save:
-            valid_time, valid_logs = asyncio.run(self.validate_one_epoch())
-        else:
-            valid_time, valid_logs = self.validate_one_epoch()
+        valid_time, valid_logs = self.validate_one_epoch()
         
 
     def validate_one_epoch(self):
@@ -217,12 +212,14 @@ class Stepper():
             
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+                        
+                        
                     
     
-                    if self.params.has_diagnostic:
-                        self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
-                    else:
-                        self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+                    # if self.params.has_diagnostic:
+                    #     self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
+                    # else:
+                    #     self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
         
                 
         total_time = time.time() - total_start
@@ -299,7 +296,8 @@ class Stepper():
                                'latitude': self.params.lat,
                                'longitude': self.params.lon}
             
-            if start_times[sample].strftime('%H')=='00' and (start_times[sample].strftime('%m')=='05'or start_times[sample].strftime('%m')=='06'or start_times[sample].strftime('%m')=='07'):
+            if start_times[sample].strftime('%H')=='00' :
+                #and (start_times[sample].strftime('%m')=='05'or start_times[sample].strftime('%m')=='06'or start_times[sample].strftime('%m')=='07')
                 filename = '%s_%s_%dh_%dstep_%s_ens_%s.nc' % (self.params.nettype, self.params.run_num, self.params['timedelta_hours'],
                                                         self.params['inference_steps'], start_times[sample].strftime('%Y%m%d%H'), ens_id)
 
@@ -354,79 +352,8 @@ class Stepper():
             
 
 
-    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
-        batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
-        # print(f"TIME STEPS ARE: {time_steps}")
-        datasets = []
-
-        for sample in range(batch_size):
-            # time_range = xr.cftime_range(
-            #     start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
-            #     periods=time_steps,
-            #     freq=f"{params['timedelta_hours']}h"
-            # )
-            # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-            # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-            if acc:
-            # For ACC, create time_range for all time steps
-                # time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
-                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(1, time_steps + 1)]
-                # print(time_range)
-            else:
-            # For specific lead times, use forecast_lead_times
-                time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-
-            # Determine the level coordinate name based on params.lev
-            level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
-
-            coordinates = {
-                'time': time_range,
-                level_coord_name: valid_dataset.levels,
-                'lat': self.params.lat,
-                'lon': self.params.lon
-            }
-
-            dataset = xr.Dataset(
-                coords=coordinates,
-                attrs=dict(description=f"Prediction from {params.nettype} model run, sample {sample}")
-            )
-
-            for idx, var in enumerate(valid_dataset.surface_variables):
-                da = xr.DataArray(
-                    data=surface_prediction[sample, :, idx],
-                    dims=["time", "lat", "lon"],
-                    coords={'time': time_range,
-                            'lat': dataset.lat.values,
-                            'lon': dataset.lon.values}
-                )
-                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
-                dataset[var] = da
-
-            if type(diagnostic_prediction) is not type(None):
-                for idx, var in enumerate(valid_dataset.diagnostic_variables):
-                    da = xr.DataArray(
-                        data=diagnostic_prediction[sample, :, idx],
-                        dims=["time", "lat", "lon"],
-                        coords={'time': time_range,
-                                'lat': dataset.lat.values,
-                                'lon': dataset.lon.values}
-                    )
-                    #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
-                    dataset[var] = da
-
-            for idx, var in enumerate(valid_dataset.upper_air_variables):
-                da = xr.DataArray(
-                    data=upper_air_prediction[sample, :, idx],
-                    dims=["time", level_coord_name, "lat", "lon"],
-                    coords=coordinates
-                )
-                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
-                dataset[var] = da
-            datasets.append(dataset)
-        return datasets
 
             
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
