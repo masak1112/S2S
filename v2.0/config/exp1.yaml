@@ -1,7 +1,7 @@
 
 ### base config ###
 base_config: &BASE
-  loss: 'weightedCRPS'
+  loss: 'weightedl1'
   lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
@@ -20,14 +20,14 @@ base_config: &BASE
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
-  name: 'S2S'
+  name: 'S2S-2Stamp'
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
   mode: 'train'
   num_ensemble_members : 4
   fresh_start: False
-  checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/2/training_checkpoints/training_checkpoints_orgi_crps.tar'
+  checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/2/training_checkpoints/ckpt.tar'
   num_ensemble_members_inference : 30
 
 S2S: &S2S
@@ -54,8 +54,8 @@ S2S: &S2S
   mask_output: False
   train_year_start: 1979
   train_year_end: 2018
-  val_year_start: 2019
-  val_year_end: 2020
+  val_year_start: 2018
+  val_year_end: 2019
   data_timedelta_hours: 6
   surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
   surface_std: 'pangu_s2s_1979-2018_surface_std.nc'
