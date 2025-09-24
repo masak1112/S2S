@@ -199,6 +199,7 @@ class Trainer():
         # Setup model
         #self.setup_model()
         logging.info('Params' % params)
+        logging.info("Self.epoch: {} in Trainer".format(self.epoch))
         
     def setup_model(self):
         # Set up model
@@ -209,9 +210,10 @@ class Trainer():
         if params.resuming:
             self.restore_checkpoint(params.checkpoint_path)
             logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
+            
         else:
             logging.info("Starting fresh training run")
-        
+        logging.info("Self.epoch: {} in after restore checkpoint".format(self.epoch))
         self.setup_scheduler()
         self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
 
@@ -567,7 +569,13 @@ class Trainer():
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
-            valid_time, valid_logs = self.validate_one_epoch()
+            try:
+                valid_time, valid_logs = self.validate_one_epoch()
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+                valid_time = {}
+                valid_logs = {}
+
             logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
             torch.cuda.empty_cache()
 
@@ -641,7 +649,6 @@ class Trainer():
         tr_time = 0
         data_time = 0
         total_iterations = sum(len(loader) for loader in self.train_data_loaders)
-
         diagnostic_logs = {}
         loss = 0
 
@@ -666,10 +673,11 @@ class Trainer():
             for i, data in enumerate(train_data_loader):
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
-                    logging.info("Test mode: only processing first 30 batches")
+                    logging.info("Test mode: only processing first batches")
                     pbar.update(total_iterations - self.iters)
                     data_time += time.time() - data_start
-
+                    break
+                    
                 else:
                     self.iters += 1
                     data_start = time.time()
@@ -899,7 +907,6 @@ class Trainer():
 
 
 
-
     def inti_valid_loss(self, lead_times_steps) -> tuple:
         """
         Initialise the validation loss variables.
@@ -938,6 +945,7 @@ class Trainer():
     def validate_one_epoch(self):
         if world_rank == 0:
             print("Validating...")
+            
         self.model.eval()
         #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
         # define the lead times to evaluate (in time steps)
@@ -951,7 +959,6 @@ class Trainer():
         valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, \
         multi_step_losses, multi_step_rmse = self.inti_valid_loss(lead_times_steps)
         
-
         valid_start = time.time()
         nb = len(self.valid_data_loader)
 
@@ -1166,6 +1173,9 @@ class Trainer():
                 del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
                 torch.cuda.empty_cache()
                 valid_steps += 1.
+                #only test first 30 examples
+                if valid_steps > 10:
+                    break 
                 
             print("Finished batch validation.")
         
@@ -1260,6 +1270,7 @@ class Trainer():
 
         valid_buff_cpu = valid_buff.detach()
 
+        logging.info("validation log epoch is {}".format(self.epoch))
         diagnostic_logs['epoch'] = self.epoch
         diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
         diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
@@ -1304,7 +1315,6 @@ class Trainer():
                 })
         
         valid_time = time.time() - valid_start
-       
         return valid_time, diagnostic_logs
 
 
@@ -1496,7 +1506,7 @@ class Trainer():
 
         if not model:
             model = self.model
-
+        logging.info("model is saved at epoch {}".format(self.epoch))
         torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
                     'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
@@ -1515,6 +1525,7 @@ class Trainer():
             self.model.load_state_dict(new_state_dict)
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
+        self.epoch = checkpoint['epoch']
         print('START EPOCH:', self.startEpoch)
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
