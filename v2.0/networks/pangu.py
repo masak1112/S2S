@@ -325,55 +325,9 @@ class PanguModel_Plasim(nn.Module):
             use_reentrant = self.use_reentrant)
         
         #############VAE part #############
-        self.layer_mu =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_sigma = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_purturbation = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim*2, kernel_size=1)
-        self.layer_perturbation2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor, 
-                                             out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
-        #############VAE part ############# 
-        
+        self.layer_mu =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim*params.updown_scale_factor, kernel_size=1)
+        self.layer_sigma = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim* params.updown_scale_factor, kernel_size=1)
 
-        ############2nd Encoder #############
-        self.layer1_e2 = EarthSpecificLayer(
-            dim=embed_dim,
-            input_resolution=EST_input_resolution,
-            depth=params.depths[0],
-            num_heads=num_heads[0],
-            window_size=self.window_size,
-            drop_path=drop_path[:depths_cumsum[0]],
-            vertical_windowing=params.vertical_windowing,
-            checkpointing = self.checkpointing,
-            use_reentrant = self.use_reentrant)
-        self.layer2_e2 = EarthSpecificLayer(
-            dim=embed_dim * params.updown_scale_factor,
-            input_resolution=downscale_resolution,
-            depth=params.depths[1],
-            num_heads=num_heads[1],
-            window_size=self.window_size,
-            drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]],
-            vertical_windowing=params.vertical_windowing,
-            drop=params.drop_rate,
-            checkpointing = self.checkpointing,
-            use_reentrant = self.use_reentrant)
-        self.layer3_e3 = EarthSpecificLayer(
-            dim=embed_dim * params.updown_scale_factor,
-            input_resolution=downscale_resolution,
-            depth=params.depths[2],
-            num_heads=num_heads[2],
-            window_size=self.window_size,
-            drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]],
-            vertical_windowing=params.vertical_windowing,
-            drop=params.drop_rate,
-            checkpointing = self.checkpointing,
-            use_reentrant = self.use_reentrant)
-
-
-        self.downsample_e2 = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
-                                     downsample_factor=params.updown_scale_factor)
-        ############Upsample the output of the 1st encoder ############
-        self.layer_mu_e2 =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_sigma_e2 = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_purturbation_e2 = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
         #self.layer_perturbation2_e2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor,  out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
 
 
@@ -473,20 +427,24 @@ class PanguModel_Plasim(nn.Module):
         x = self.downsample(x) #8, 10350, 384
         x = self.layer2(x)
         x = self.layer3(x)
-        print("x shape before VAE ", x.shape) #8, 10350, 384
-        # x = x.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
-        
+        print("x shape before VAE ", x.shape) # 1, 10350, 384
+
+        x = x.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
         # x_vae = x #8, 10, 23, 45, 384
 
-        # # print("x_vae reshaped after ", x_vae.shape) 
+        print("x reshaped after reshape ", x.shape) 
         # ###########VAE Enocer 1#################
-        mu = self.layer_mu(x) # should be #8,192, 10,23,45, 
-        sigma = self.layer_sigma(x) # should be #8, 192, 10,23,45, 
-        norm = self.reparameterize(mu, sigma) # should be #8,192, 10,23,45
+        mu = self.layer_mu(x) # 
+        print( "mu shape after VAE ", mu.shape)
+        sigma = self.layer_sigma(x) 
+        print("sigma shape after VAE ", sigma.shape)
+        norm = self.reparameterize(mu, sigma) #1, 192, 10, 23, 45
         print("norm shape after VAE ", norm.shape)
-
-        x = self.upsample(norm)
-        x = self.layer4(x)
+   
+        x = norm.permute(0, 2, 3,4, 1).reshape(B, -1, self.embed_dim * self.updown_scale_factor) #8, 10350, 384
+        print("x shape after VAE reparameterize ", x.shape) # 1, 5175, 384
+        x = self.upsample(x)
+        x = self.layer4(x) 
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
@@ -514,19 +472,10 @@ class PanguModel_Plasim(nn.Module):
         else:
             output_upper_air = self.patchrecovery3d(output_upper_air)
             
-        if self.num_diagnostic_vars > 0:
-            output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
-                output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
-            if train:
-                return output_surface, output_upper_air, output_diagnostic, mu, sigma
-            else:
-                return output_surface, output_upper_air, output_diagnostic, mu, sigma
-        else:
-            if train:
-                return output_surface, output_upper_air, mu, sigma
-            else:
-                return output_surface, output_upper_air, mu, sigma
-                
+
+
+        return output_surface, output_upper_air, mu, sigma
+            
         
 class Mask(nn.Module):
     def __init__(self, mask, mask_fill = None):

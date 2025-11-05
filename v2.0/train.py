@@ -569,12 +569,12 @@ class Trainer():
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
-            try:
-                valid_time, valid_logs = self.validate_one_epoch()
-            except Exception as e:
-                print(f"An unexpected error occurred: {e}")
-                valid_time = {}
-                valid_logs = {}
+            #try:
+            valid_time, valid_logs = self.validate_one_epoch()
+            # except Exception as e:
+            #     print(f"An unexpected error occurred: {e}")
+            #     valid_time = {}
+            #     valid_logs = {}
 
             logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
             torch.cuda.empty_cache()
@@ -712,11 +712,10 @@ class Trainer():
                         mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
                         ######diagnoistic logging per iteration ###################
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs,  surface_lwrmse, upper_air_lwrmse, current_dataset,
                                                                         train_batch_loss = loss, 
                                                                         train_batch_loss_sfc = loss_sfc, 
                                                                         train_batch_loss_upper_air = loss_pl,
-                                                                        train_batch_loss_diagnostic =loss_diagnostic,
                                                                         train_batch_loss_vae = loss_vae,
                                                                         train_mean_norm_lwrmse = mean_norm_lwrmse)
                     ##########################################################
@@ -804,7 +803,7 @@ class Trainer():
         loss_vae = 0
         with autocast(device_type="cuda"):
              
-            output_surface, output_upper_air, mu, sigma,  mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+            output_surface, output_upper_air, mu, sigma, = self.model(input_surface, constant_boundary_data, 
                                                         varying_boundary_data, input_upper_air, 
                                                         target_surface, target_upper_air, train = True)
                 
@@ -821,7 +820,7 @@ class Trainer():
         return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
 
 
-    def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
+    def diagnostic_log_per_iter(self, diagnostic_logs, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
         """
         This function is used for logging the results from each iteration.
         Given the diagnostic logging input and return the update diagnostic_logs
@@ -833,9 +832,6 @@ class Trainer():
         for key, value in kwargs.items():
             diagnostic_logs[key] = value
 
-        if self.params.has_diagnostic:
-            for j, var in enumerate(current_dataset.diagnostic_variables):
-                diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
         
         for j, var in enumerate(current_dataset.surface_variables):
             diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
@@ -960,14 +956,14 @@ class Trainer():
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
                 if world_rank == 0:
                     print(f"Validating batch {i+1}/{nb}")
-
-                val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
-                    lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                
+                val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
                 # get the correct start times for each sample
                 start_times = []
                 for i in range(times.shape[0]):  # Iterate over all samples in the batch
-                    
+
                     start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
                     start_times.append(start_time)
                 
@@ -993,12 +989,13 @@ class Trainer():
                                         dtype=np.float32)
                                         
                 step_idx = 0
+                step = 0 
                 val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_input_upper_air)
                 
-                loss_sfc = self.loss_obj_sfc(val_output_surface, val_input_surface[:,target_index])
-                loss_pl = self.loss_obj_pl(val_output_upper_air, val_input_upper_air[:,target_index])
-:
+                loss_sfc = self.loss_obj_sfc(val_output_surface, val_input_surface[:,step])
+                loss_pl = self.loss_obj_pl(val_output_upper_air, val_input_upper_air[:,step])
+
                 loss = (loss_sfc * 0.25 + loss_pl)
                 multi_step_losses[f"valid_loss_{step+1}step"] += loss
 
@@ -1058,32 +1055,14 @@ class Trainer():
 
 
         for j, var in enumerate(self.valid_dataset.surface_variables):
-            diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_surface_lwrmse[0, j] * self.valid_dataset.surface_std[j]
+            diagnostic_logs[f'valid_{var}_{step}step_lwrmse'] = valid_surface_lwrmse[0, j] * self.valid_dataset.surface_std[j]
         for j, var in enumerate(self.valid_dataset.upper_air_variables):
             for k, level in enumerate(self.valid_dataset.levels):
-                diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[0, j, k] * self.valid_dataset.upper_air_std[j, k]]
-
+                diagnostic_logs[f'valid_{var}_level{level:.3f}_{step}step_lwrmse'] = valid_upper_air_lwrmse[0, j, k] * self.valid_dataset.upper_air_std[j, k]
 
 
         if self.params.log_to_wandb:
-            wandb.log(diagnostic_logs)
-            if self.params.diagnostic_acc:
-                wandb.log({
-                    "ACC_plot": wandb.Image(plot_filename),
-                    "epoch": self.epoch
-                })
-            if self.params.diagnostic_gif:
-                if gif_filename:
-                    wandb.log({
-                        "Evolution_GIF": wandb.Video(gif_filename),
-                        "epoch": self.epoch
-                    })
-            if self.params.diagnostic_spectra:
-                wandb.log({
-                    "power_spectrum_plot": wandb.Image(path_filename),
-                    "epoch": self.epoch,
-                })
-        
+            wandb.log(diagnostic_logs) 
         valid_time = time.time() - valid_start
         return valid_time, diagnostic_logs
 
