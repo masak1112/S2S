@@ -803,6 +803,7 @@ class Trainer():
         loss_vae = 0
         with autocast(device_type="cuda"):
              
+            
             output_surface, output_upper_air, mu, sigma, = self.model(input_surface, constant_boundary_data, 
                                                         varying_boundary_data, input_upper_air, 
                                                         target_surface, target_upper_air, train = True)
