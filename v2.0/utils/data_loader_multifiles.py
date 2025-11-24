@@ -606,6 +606,6 @@ def get_infer_data(params, files_pattern, distributed, year_start, year_end, ste
                             shuffle=False,  # (sampler is None),
                             sampler=None,# if train else None,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available())
+                            pin_memory=torch.cuda.is_available(),prefetch_factor=8)
 
     return dataloader, dataset

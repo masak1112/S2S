@@ -1,7 +1,7 @@
 
 ### base config ###
 base_config: &BASE
-  loss: 'weightedl1'
+  loss: 'weightedCRPS'
   lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
@@ -26,7 +26,7 @@ base_config: &BASE
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
   mode: 'train'
-  num_ensemble_members: 1
+  num_ensemble_members: 4
   test_iterations: 10
   checkpoint_path: '/home1/10786/bgong1/WORK/PanguWeather/v2.0/HPC_scripts/results/S2S/2/training_checkpoints/ckpt.tar'
 
@@ -34,7 +34,7 @@ base_config: &BASE
 
 S2S: &S2S
   <<: *BASE
-  data_dir: '/scratch/08198/tg874973/pangu-s2s/h5data'
+  data_dir: '/net/monsoon/S2S/h5data0'
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
   surface_variables: ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',
@@ -54,10 +54,10 @@ S2S: &S2S
               'sea_ice_cover': 0.,
               'snow_depth': 0.}
   mask_output: False
-  train_year_start: 1979
-  train_year_end: 2018
-  val_year_start: 2018
-  val_year_end: 2019
+  train_year_start: 2015
+  train_year_end: 2016
+  val_year_start: 2015
+  val_year_end: 2016
   data_timedelta_hours: 6
   surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
   surface_std: 'pangu_s2s_1979-2018_surface_std.nc'
@@ -74,7 +74,7 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 4
+  batch_size: 16
   max_epochs: 100
   has_year_zero: False
   num_levels: 17upper_air_boundary

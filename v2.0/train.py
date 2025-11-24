@@ -165,7 +165,15 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
-    return (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1)
+    # print("data device:", data.device)
+    # data = data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:])
+    # time_ens = time.time()
+    # data = data.to(data.device)
+    # print("data transfoer time is:",time.time()-time_ens)
+    # data = data.flatten(0, 1)
+    #data = (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1)
+    data = data.unsqueeze(1).expand(-1, ens_members, *data.shape[1:]).reshape(-1, *data.shape[1:])
+    return data
 
 
 class Trainer():
@@ -767,9 +775,11 @@ class Trainer():
         
         if self.params.num_ensemble_members > 1:
             if self.params.has_diagnostic:
+                time_ems = time.time()
                 ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
                                     [input_surface, input_upper_air, target_surface, target_upper_air, 
                                     target_diagnostic, varying_boundary_data]]
+                print("time for prepare ensembe batches:", time.time()-time_ems)
                 input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
 
                 
@@ -1393,7 +1403,7 @@ class Trainer():
                         data=diagnostic_prediction[sample, :, idx],
                         dims=["time", "lat", "lon"],
                         coords={'time': time_range,
-                                'lat': dataset.lat.values,
+                                'lat': dataset.lat.valuegs,
                                 'lon': dataset.lon.values}
                     )
                     #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
@@ -1544,11 +1554,16 @@ if __name__ == '__main__':
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
     parser.add_argument("--fresh_start", default=False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+    parser.add_argument("--local_storage", default=False, type=str)
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
+    if args.local_storage:
+        params["data_dir"] = args.local_storage
+        print("using the local storage:",params["data_dir"])
+        
     print("This is the starting point f")
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
