@@ -4,7 +4,7 @@
 #SBATCH -p h100
 #SBATCH -t 24:00:00
 #SBATCH -N 1 # nodes
-#SBATCH -n 1
+#SBATCH -n 4
 
 #SBATCH -o stampede_ddp_%x_%j.out
 #SBATCH -e stampede_ddp_%x_%j.err
@@ -21,10 +21,8 @@ conda activate /home1/10786/bgong1/stampede3/env
 export NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
 
 
-config_file=../config/exp1.yaml
+config_file=../config/exp9.yaml
 
-torchrun --standalone -m torch.distributed.launch --nproc_per_node=gpu ../train.py --yaml_config=$config_file --run_num=1stampede
+torchrun --standalone -m torch.distributed.launch --nproc_per_node=gpu ../train.py --yaml_config=$config_file --run_num=latent_vae
 
-
->>>>>>> refs/remotes/origin/bing_issue#004_vae_crps_v2
 #/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1
