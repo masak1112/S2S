@@ -27,7 +27,7 @@ base_config: &BASE
   vae_loss_weight: 0.01
   mode: 'train'
   num_ensemble_members: 1
-  test_iterations: 1000000000000000000
+  test_iterations: 10000000000
   checkpoint_path: "/scratch/10786/bgong1/PanguWeather/v2.0/HPC_scripts/results/S2S/latent_vae/training_checkpoints/ckpt.tar"
 
 S2S: &S2S
@@ -74,7 +74,7 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 16
+  batch_size: 8
   max_epochs: 100
   has_year_zero: False
   num_levels: 17upper_air_boundary

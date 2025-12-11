@@ -994,8 +994,11 @@ class Trainer():
                 val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_input_upper_air)
                 
-                loss_sfc = self.loss_obj_sfc(val_output_surface, val_input_surface[:,step])
-                loss_pl = self.loss_obj_pl(val_output_upper_air, val_input_upper_air[:,step])
+                
+                print("val_input_surface shape:", val_input_surface.shape)
+                print("val_output_surface shape:", val_output_surface.shape)
+                loss_sfc = self.loss_obj_sfc(val_output_surface, val_input_surface)
+                loss_pl = self.loss_obj_pl(val_output_upper_air, val_input_upper_air)
 
                 loss = (loss_sfc * 0.25 + loss_pl)
                 multi_step_losses[f"valid_loss_{step+1}step"] += loss
@@ -1011,8 +1014,8 @@ class Trainer():
 
 
                 # Calculate RMSE
-                rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_input_surface[:,step], latitudes)
-                rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_input_upper_air[:,step], latitudes)
+                rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_input_surface, latitudes)
+                rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_input_upper_air, latitudes)
                 
                 multi_step_rmse[f"valid_lwrmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
                 multi_step_rmse[f"valid_lwrmse_pl_{step+1}step"] += torch.mean(rmse_pl)
@@ -1027,7 +1030,7 @@ class Trainer():
                 torch.cuda.empty_cache()
                 valid_steps += 1.
                 #only test first 30 examples
-                if valid_steps > 100:
+                if valid_steps > 30:
                     break 
                 
             print("Finished batch validation.")
