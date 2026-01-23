@@ -39,6 +39,7 @@ from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
 from utils.utils import log_memory_usage, log_gpu_memory   
+import torch.cuda.nvtx as nvtx
 
 logging_utils.config_logger()
 torch._dynamo.config.optimize_ddp = False
@@ -653,6 +654,7 @@ class Trainer():
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
     def train_one_epoch(self)->None:
+        nvtx.range_push("train_one_epoch")
         self.epoch += 1
         tr_time = 0
         data_time = 0
@@ -662,6 +664,8 @@ class Trainer():
 
         logging.info(f"Expected total batches: {total_iterations}")
         if not self.train_data_loaders:
+            logging.warning("No training data loaders available.")
+            nvtx.range_pop()
             logging.warning("No training data loaders available.")
             return 0, 0, {"train_loss": 0.0}
 
@@ -687,24 +691,35 @@ class Trainer():
                     break
                     
                 else:
+                    nvtx.range_push(f"train_batch_{i}")
                     self.iters += 1
                     data_start = time.time()
+                    nvtx.range_push("data_preparation")
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
+                    nvtx.range_pop()
                     data_time += time.time() - data_start
                     logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
                     tr_start = time.time()
-                    self.model.zero_grad()                
+                    self.model.zero_grad()
+                    nvtx.range_push("forward_and_loss")
                     #define loss
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
                     )
+                    nvtx.range_pop()
                     
-                    
+                    nvtx.range_push("backward")
                     self.scaler.scale(loss).backward()
+                    nvtx.range_pop()
+                             
+    
+                    nvtx.range_push("optimizer_step")
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
+                    nvtx.range_pop()
+                 
                     tr_end_time = time.time()
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
@@ -745,7 +760,9 @@ class Trainer():
                 
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
 
-                    pbar.update(1)
+                    nvtx.range_pop()  # End train_batch
+        pbar.close()
+        nvtx.range_pop()  # End train_one_epochpbar.update(1)
         pbar.close()
 
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
@@ -953,6 +970,7 @@ class Trainer():
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
     def validate_one_epoch(self):
+        nvtx.range_push("validate_one_epoch")
         if world_rank == 0:
             print("Validating...")
             
@@ -984,7 +1002,9 @@ class Trainer():
         # with torch.inference_mode():
 
         with torch.no_grad():
+            
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
+                nvtx.range_push(f"validation_batch_{i}")
                 if world_rank == 0:
                     print(f"Validating batch {i+1}/{nb}")
                 if self.params.predict_delta:
@@ -1058,13 +1078,16 @@ class Trainer():
                                         dtype=np.float32)
                                         
                 step_idx = 0
+                
                 for step in range(max_lead_time):
+                    nvtx.range_push(f"validation_step_{step}")
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic, _, _  = self.model(
                             val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                     else:
                         val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
                                                                                 val_varying_boundary_data[:, step], val_input_upper_air)
+                    nvtx.range_pop()
                     # Calculate losses for different lead times
                     if (step + 1) in lead_times_steps:
                         # target_index = lead_times_steps.index(step + 1)
@@ -1176,10 +1199,10 @@ class Trainer():
                                 all_ground_truths.append(gt_combined_dataset)
 
                         step_idx += 1
-                    
+                    nvtx.range_pop() #End validation_step
                     val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
                     del val_output_surface, val_output_upper_air
-                    
+                nvtx.range_pop() # End validation_batch   
                 del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
                 torch.cuda.empty_cache()
                 valid_steps += 1.
@@ -1188,7 +1211,7 @@ class Trainer():
                     break 
                 
             print("Finished batch validation.")
-        
+        nvtx.range_pop() # End validate_one_epoch
 
         # After the loop, combine all predictions and ground truths
         if self.params.diagnostic_spectra:
