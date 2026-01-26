@@ -53,6 +53,7 @@ dist.init_process_group(backend='nccl', init_method='env://')
 world_rank = dist.get_rank()
 print(f"World rank: {world_rank}")
 
+
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
     lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
@@ -562,6 +563,7 @@ class Trainer():
         early_stop_epoch_triggered = False
 
         for epoch in range(self.startEpoch, self.params.max_epochs):
+            
             if world_rank == 0:
                 logging.info(f'Starting epoch {epoch + 1}/{self.params.max_epochs}')
 
@@ -619,6 +621,9 @@ class Trainer():
                     logging.info('Early stopping triggered. Terminating training.')
                     break # Exit the train method
 
+
+        torch.cuda.profiler.stop()
+
         if self.params.log_to_screen and world_rank == 0:
             if early_stop_epoch_triggered:
                 logging.info(f'Training finished early at epoch {self.early_stop_epoch} due to early_stop_epoch setting.')
@@ -654,8 +659,9 @@ class Trainer():
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
     def train_one_epoch(self)->None:
-        nvtx.range_push("train_one_epoch")
+        
         self.epoch += 1
+        nvtx.range_push(f"train_one_epoch_{self.epoch}")  # Start train_one_epoch
         tr_time = 0
         data_time = 0
         total_iterations = sum(len(loader) for loader in self.train_data_loaders)
@@ -664,8 +670,6 @@ class Trainer():
 
         logging.info(f"Expected total batches: {total_iterations}")
         if not self.train_data_loaders:
-            logging.warning("No training data loaders available.")
-            nvtx.range_pop()
             logging.warning("No training data loaders available.")
             return 0, 0, {"train_loss": 0.0}
 
@@ -676,6 +680,7 @@ class Trainer():
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             logging.debug(f"Processing year idx {year_idx}")
+            
             current_dataset = self.train_datasets[year_idx]
             if self.params.train_year_to_year:
                 logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
@@ -691,40 +696,43 @@ class Trainer():
                     break
                     
                 else:
-                    nvtx.range_push(f"train_batch_{i}")
+                    
+                    nvtx.range_push(f"train_step{self.iters}")  # Start train_one_epoch
                     self.iters += 1
                     data_start = time.time()
-                    nvtx.range_push("data_preparation")
+                    
+                    nvtx.range_push("data_preparation") #Start data_preparation
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
-                    nvtx.range_pop()
+                    nvtx.range_pop()  # End data_preparation
+           
                     data_time += time.time() - data_start
                     logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
                     tr_start = time.time()
                     self.model.zero_grad()
-                    nvtx.range_push("forward_and_loss")
+                
                     #define loss
+                    nvtx.range_push("forward_loss")  # Start forward_pass and calculate the loss
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
                     )
-                    nvtx.range_pop()
-                    
-                    nvtx.range_push("backward")
+                    nvtx.range_pop()  # End forward_pass and calculate the loss
+                    nvtx.range_push("backpropagation")  # Start backpropagation and optimizer step
                     self.scaler.scale(loss).backward()
-                    nvtx.range_pop()
-                             
-    
-                    nvtx.range_push("optimizer_step")
+                    nvtx.range_pop()  # End backpropagation and optimizer step
+                    nvtx.range_push("optimizer_step")  # Start optimizer step
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
-                    nvtx.range_pop()
+                    
+              
                  
                     tr_end_time = time.time()
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
-
+                    nvtx.range_pop()  # End optimizer step
+                    nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
                     with torch.no_grad():
 
                         if self.params.predict_delta:
@@ -754,16 +762,16 @@ class Trainer():
                         if self.world_rank == 0:
                             #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                             wandb.log(diagnostic_logs, step= self.iters)
-
+                    nvtx.range_pop()  # End update_running_results
                     torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
                 
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-
-                    nvtx.range_pop()  # End train_batch
+                nvtx.range_pop()  # End train_step
+              
         pbar.close()
-        nvtx.range_pop()  # End train_one_epochpbar.update(1)
-        pbar.close()
+        nvtx.range_pop()  # End train_one_epoch
+        pbar.update(1)
 
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
         return tr_time, data_time, logs
@@ -970,7 +978,7 @@ class Trainer():
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
     def validate_one_epoch(self):
-        nvtx.range_push("validate_one_epoch")
+
         if world_rank == 0:
             print("Validating...")
             
@@ -1004,7 +1012,7 @@ class Trainer():
         with torch.no_grad():
             
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
-                nvtx.range_push(f"validation_batch_{i}")
+         
                 if world_rank == 0:
                     print(f"Validating batch {i+1}/{nb}")
                 if self.params.predict_delta:
@@ -1080,14 +1088,14 @@ class Trainer():
                 step_idx = 0
                 
                 for step in range(max_lead_time):
-                    nvtx.range_push(f"validation_step_{step}")
+                    #nvtx.range_push(f"validation_step_{step}")
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic, _, _  = self.model(
                             val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                     else:
                         val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
                                                                                 val_varying_boundary_data[:, step], val_input_upper_air)
-                    nvtx.range_pop()
+                 
                     # Calculate losses for different lead times
                     if (step + 1) in lead_times_steps:
                         # target_index = lead_times_steps.index(step + 1)
@@ -1199,10 +1207,10 @@ class Trainer():
                                 all_ground_truths.append(gt_combined_dataset)
 
                         step_idx += 1
-                    nvtx.range_pop() #End validation_step
+                   
                     val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
                     del val_output_surface, val_output_upper_air
-                nvtx.range_pop() # End validation_batch   
+             
                 del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
                 torch.cuda.empty_cache()
                 valid_steps += 1.
@@ -1211,9 +1219,7 @@ class Trainer():
                     break 
                 
             print("Finished batch validation.")
-        nvtx.range_pop() # End validate_one_epoch
-
-        # After the loop, combine all predictions and ground truths
+ 
         if self.params.diagnostic_spectra:
             combined_predictions = xr.concat(all_predictions, dim='time')
             combined_ground_truths = xr.concat(all_ground_truths, dim='time')

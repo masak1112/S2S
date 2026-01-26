@@ -6,50 +6,72 @@
 #SBATCH --mem=500G
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task=8 #16 
+#SBATCH --cpus-per-task=8 
 #SBATCH -o midway_ddp_%x_%j.out
 #SBATCH -e midway_ddp_%x_%j.err
 
-#echo $SLURM_NTASKS   # WORLD_SIZE
-#echo $SLURM_PROCID   # WORLD_RANK
-#echo $SLURM_LOCALID  # LOCAL_RANK
+# Enable GPU support for MPI
 export MPICH_GPU_SUPPORT_ENABLED=1
 
 ulimit -l unlimited
 ml python
-conda activate /project/pedramh/bing/env
+
+source activate /project/pedramh/bing/env
 export WANDB_MODE=offline
+module unload cuda
+module load cuda/12.6
+
+# NCCL optimizations for H100
+export NCCL_DEBUG=INFO  # Set to WARN in production
+export NCCL_IB_DISABLE=0  # Enable InfiniBand if available
+export NCCL_NET_GDR_LEVEL=5  # GPU Direct RDMA
+export NCCL_P2P_LEVEL=5  # Enable P2P
+export NCCL_SOCKET_IFNAME=^lo,docker0  # Exclude loopback
+
+# PyTorch NCCL settings
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_DISTRIBUTED_DEBUG=DETAIL  # Remove in production
+
+# CUDA optimizations
+export CUDA_LAUNCH_BLOCKING=0
+export TORCH_CUDNN_V8_API_ENABLED=1
 
 
 echo nvidia-smi
+nvidia-smi
 
-# Change to working directory
-#cd $SLURM_SUBMIT_DIR
-# source export_DDP_vars.sh
-# cd /project/pedramh/bing/PanguWeather/v2.0
-
-# MPI and OpenMP settings
-# NNODES=`wc -l < $SLURM_JOB_NODELIST`
-#Follwing will be the number of GPUs on each node, so 4 in our case as each node has 4 GPUs
+# Get GPU count
 export NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
-#NUM_TASKS_PER_NODE=2
-#WORLD_SIZE=$((NNODES * NUM_TASKS_PER_NODE))
 
-#export WORLD_SIZE=1
-#export NUM_TASKS_PER_NODE=1
+echo "NUM_OF_NODES= ${SLURM_JOB_NUM_NODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SIZE= ${SLURM_NTASKS}"
 
-echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SIZE= ${WORLD_SIZE}"
+# Configuration
+config_file=../config/exp2.yaml
 
-# Set up the PyTorch distributed environment
-#export MASTER_ADDR=$(hostname)
-#export MASTER_PORT=12345
-#export WORLD_SIZE
-#export RANK=$SLURM_ARRAY_TASK_ID
-#export OMP_NUM_THREAD=8
-# Launch your script using torch.distributed.launch
-# config_file=../config/PANGU_S2S_lr3b_midway.yaml
-config_file=../config/exp1.yaml
 
-#train command
-# /project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
-/project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=2
+echo "--- STARTING NSYS PROFILING RUN (TARGET: EPOCH 1) ---"
+
+
+
+
+nsys profile -w true -t cuda,nvtx \
+    -o nsys_report_%q{SLURM_JOB_ID} \
+    --force-overwrite=true \
+    /project/pedramh/bing/env/bin/torchrun \
+    --standalone \
+    --nproc_per_node=$NUM_TASKS_PER_NODE \
+    ../train.py \
+    --yaml_config=$config_file \
+    --run_num=0105_nsys \
+#   --amp-dtype bf16 \
+#   --torch-compile \
+#   --compile-mode reduce-overhead \
+#   --enable-sdp-flash \
+#   --ddp-static-graph \
+#   --ddp-bucket-cap-mb 200 \
+#   --ddp-fp16-compress \
+#   --log-every-n-steps 20 \
+#   --metrics-every 100 \
+#   --fp32-matmul-precision high \
+
+# --- END MODIFICATION
