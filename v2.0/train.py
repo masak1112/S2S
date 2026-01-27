@@ -49,6 +49,10 @@ torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()           
 logging.info("Torch version: {}".format(torch.__version__))
 
+
+# Enable CUDA graphs if supported (H100 friendly)
+torch.backends.cudnn.allow_cudnn_rnn_fallback = False
+
 dist.init_process_group(backend='nccl', init_method='env://')
 world_rank = dist.get_rank()
 print(f"World rank: {world_rank}")
@@ -167,14 +171,10 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
-    # print("data device:", data.device)
-    # data = data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:])
-    # time_ens = time.time()
-    # data = data.to(data.device)
-    # print("data transfoer time is:",time.time()-time_ens)
-    # data = data.flatten(0, 1)
-    #data = (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1)
-    data = data.unsqueeze(1).expand(-1, ens_members, *data.shape[1:]).reshape(-1, *data.shape[1:])
+    nvtx.range_push("to_ensemble_batch")
+    data = (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1) #old version
+    nvtx.range_pop()  # End to_ensemble_batch
+    #data = data.unsqueeze(1).expand(-1, ens_members, *data.shape[1:]).reshape(-1, *data.shape[1:])
     return data
 
 
@@ -411,6 +411,9 @@ class Trainer():
         else:
             raise Exception("not implemented")
 
+        # _compile_mode = "max-autotune"
+        # self.model = torch.compile(self.model, mode=_compile_mode, fullgraph=False)
+        # logging.info(f"torch.compile enabled (mode={_compile_mode})")
         
         if dist.is_initialized():
             self.model = DistributedDataParallel(self.model,
@@ -687,16 +690,20 @@ class Trainer():
             else:
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
+
+            #prefetch data
+            nvtx.range_push("initial_prefetch")
+            data_iter = iter(train_data_loader)
+            nvtx.range_pop()  # End initial_prefetch
+            data = next(data_iter)
             for i, data in enumerate(train_data_loader):
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
                     logging.info("Test mode: only processing first batches")
                     pbar.update(total_iterations - self.iters)
                     data_time += time.time() - data_start
-                    break
-                    
+                    break  
                 else:
-                    
                     nvtx.range_push(f"train_step{self.iters}")  # Start train_one_epoch
                     self.iters += 1
                     data_start = time.time()
@@ -725,55 +732,59 @@ class Trainer():
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     
-              
-                 
+            
                     tr_end_time = time.time()
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
                     nvtx.range_pop()  # End optimizer step
                     nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
-                    with torch.no_grad():
+                    if (i % 20 == 0): #only     log every 20 iterations to reduce overhead
+                        with torch.no_grad():
+                            if self.params.predict_delta:
+                                output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                                target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
 
-                        if self.params.predict_delta:
-                            output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
-                            target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+                            latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
+                            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
+                            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
 
-                        latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
-                        surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
-                        upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
+                            if self.params.has_diagnostic:
+                                diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            else:
+                                diagnostic_lwrmse  = 0
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
-                        if self.params.has_diagnostic:
-                            diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        else:
-                            diagnostic_lwrmse  = 0
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-
-                        ######diagnoistic logging per iteration ###################
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
-                                                                        train_batch_loss = loss, 
-                                                                        train_batch_loss_sfc = loss_sfc, 
-                                                                        train_batch_loss_upper_air = loss_pl,
-                                                                        train_batch_loss_diagnostic =loss_diagnostic,
-                                                                        train_batch_loss_vae = loss_vae,
-                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
-                    ##########################################################
-                        if self.world_rank == 0:
-                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
-                            wandb.log(diagnostic_logs, step= self.iters)
+                            ######diagnoistic logging per iteration ###################
+                            diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                            train_batch_loss = loss, 
+                                                                            train_batch_loss_sfc = loss_sfc, 
+                                                                            train_batch_loss_upper_air = loss_pl,
+                                                                            train_batch_loss_diagnostic =loss_diagnostic,
+                                                                            train_batch_loss_vae = loss_vae,
+                                                                            train_mean_norm_lwrmse = mean_norm_lwrmse)
+                        ##########################################################
+                            if self.world_rank == 0:
+                                #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                                wandb.log(diagnostic_logs, step= self.iters)
                     nvtx.range_pop()  # End update_running_results
+                    
+                    nvtx.range_push("empty cache")
                     torch.cuda.empty_cache()
+                    nvtx.range_pop()
                     tr_time += time.time() - tr_start
                 
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
                 nvtx.range_pop()  # End train_step
               
         pbar.close()
-        nvtx.range_pop()  # End train_one_epoch
+        
         pbar.update(1)
-
+        nvtx.range_push("logging")  # Start logging
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
+        nvtx.range_pop()  # End logging
+        nvtx.range_pop()  # End train_one_epoch
         return tr_time, data_time, logs
 
 
@@ -978,6 +989,7 @@ class Trainer():
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
     def validate_one_epoch(self):
+        nvtx.range_push(f"validate_one_epoch_{self.epoch}")  # Start validate_one_epoch
 
         if world_rank == 0:
             print("Validating...")
@@ -1353,6 +1365,7 @@ class Trainer():
                     "epoch": self.epoch,
                 })
         
+        nvtx.range_pop()  # End validate_one_epoch
         valid_time = time.time() - valid_start
         return valid_time, diagnostic_logs
 
