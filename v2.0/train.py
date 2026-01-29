@@ -172,9 +172,10 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
     nvtx.range_push("to_ensemble_batch")
-    data = (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1) #old version
+    data = data.unsqueeze(1).expand(-1, ens_members, *data.shape[1:]).reshape(-1, *data.shape[1:])
+    #data = (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1) #old version
     nvtx.range_pop()  # End to_ensemble_batch
-    #data = data.unsqueeze(1).expand(-1, ens_members, *data.shape[1:]).reshape(-1, *data.shape[1:])
+    #
     return data
 
 
@@ -690,7 +691,6 @@ class Trainer():
             else:
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
-
             #prefetch data
             nvtx.range_push("initial_prefetch")
             data_iter = iter(train_data_loader)
@@ -732,14 +732,14 @@ class Trainer():
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     
-            
                     tr_end_time = time.time()
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
                     nvtx.range_pop()  # End optimizer step
-                    nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
+                    
                     if (i % 20 == 0): #only     log every 20 iterations to reduce overhead
+                        nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
                         with torch.no_grad():
                             if self.params.predict_delta:
                                 output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
@@ -768,11 +768,11 @@ class Trainer():
                             if self.world_rank == 0:
                                 #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                                 wandb.log(diagnostic_logs, step= self.iters)
-                    nvtx.range_pop()  # End update_running_results
+                        nvtx.range_pop()  # End update_running_results
                     
-                    nvtx.range_push("empty cache")
-                    torch.cuda.empty_cache()
-                    nvtx.range_pop()
+                        nvtx.range_push("empty cache")
+                        torch.cuda.empty_cache()
+                        nvtx.range_pop()
                     tr_time += time.time() - tr_start
                 
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")

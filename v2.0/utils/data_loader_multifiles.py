@@ -101,7 +101,10 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
                             shuffle=False,  # (sampler is None),
                             sampler=sampler,# if train else None,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available())
+                            pin_memory=torch.cuda.is_available(),
+                            # prefetch_factor=4,
+                            # persistent_workers=True
+                    ) #     
 
     if train:
         return dataloader, dataset, sampler
