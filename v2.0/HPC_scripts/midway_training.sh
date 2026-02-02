@@ -53,7 +53,6 @@ echo "--- STARTING NSYS PROFILING RUN (TARGET: EPOCH 1) ---"
 
 
 
-
 nsys profile -w true -t cuda,nvtx \
     -o nsys_report_%q{SLURM_JOB_ID} \
     --force-overwrite=true \
