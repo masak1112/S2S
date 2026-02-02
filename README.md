@@ -29,7 +29,7 @@ cd src
 
 ## Change branch
 
-Once you access to the code repo, switch to the branch `bing_issue#011_add_evaluation_metric_jupiter` by the following command
+Once you access to the code repo, switch to the branch `bing_issue#004_vae_crps_v2_fix_dsi` by the following command
 
 ```
 git checkout --track origin/bing_issue#011_add_evaluation_metric_jupiter
