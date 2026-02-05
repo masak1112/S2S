@@ -18,7 +18,7 @@ The experiments rely on the ERA5 dataset. We have stored and processed the data 
 Clone this repository by running the following command in your personal target directory:
 
 ```
-git clone https://github.com/envfluids/PanguWeather.git
+git clone git@github.com:masak1112/S2S.git
 ```
 
 To the source code by running the command:
