@@ -33,7 +33,7 @@ git checkout --track origin/bing_issue#004_vae_crps_v2_fix_dsi
 
 # Set up virtual enviornment
 
-The code can be set-up on different operating systems. The related virtual environment can be set up with the help of the `conda` command. The enviornment request is listed in the `src/enviornment.yml` file. You can simply use the following command:
+The code can be set-up on different operating systems. The related virtual environment can be set up with the help of the `conda` command. The enviornment request is listed in the `v2.0/enviornment.yml` file. You can simply use the following command:
 
 ```
 conda env create -f environment.yml --prefix /path/to/myenv
@@ -64,7 +64,7 @@ If beginning a training run for the first time, log in to your weights and biase
 
 ## Run the workflow using HPC script templates
 
-To help you submit the jobs to different systems, we prepare the HPC job submission templates under `src/HPC_scripts` for training and inference.
+To help you submit the jobs to different systems, we prepare the HPC job submission templates under `HPC_scripts` for training and inference.
 
 For each template, you need to change your working directory path and configuration file path
 
