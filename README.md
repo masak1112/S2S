@@ -21,11 +21,6 @@ Clone this repository by running the following command in your personal target d
 git clone git@github.com:masak1112/S2S.git
 ```
 
-To the source code by running the command:
-
-```
-cd src
-```
 
 ## Change branch
 
