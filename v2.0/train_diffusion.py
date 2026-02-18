@@ -1,0 +1,327 @@
+#Train diffusion model##
+
+
+
+
+import logging
+import time
+import torch
+from networks.diffusion import ConditionalDiffusionModel
+from train import Trainer
+import tqdm
+import wandb 
+import numpy as np
+from ruamel.yaml import YAML
+import os
+from utils import logging_utils
+from ruamel.yaml.comments import CommentedMap as ruamelDict
+import argparse
+
+
+
+class DiffusionTrainer(Trainer):
+    def __init__(self, params,world_rank):
+        super().__init__(params,world_rank)
+        self.model = self.get_model()
+        #load model weights 
+        self.restore_checkpoint(self.params.checkpoint_path)
+                
+        # freeze all params in self.model
+        for p in self.model.parameters():
+            p.requires_grad = False
+        
+        self.diff_model= self.get_diffusion_model()
+        self.setup_scheduler()
+        self.get_dataset()
+        self.params = params
+        
+        
+
+        
+    def training_one_epoch_diffusion(self) -> dict[str, torch.Tensor]:
+        """
+        Single training step.
+        Returns dict with 'loss', 'diffusion_loss', 'kl_loss'.
+        """
+        
+        self.epoch += 1
+        total_iterations = sum(len(loader) for loader in self.train_data_loaders)
+        diagnostic_logs = {}
+        loss = 0
+
+        logging.info(f"Expected total batches: {total_iterations}")
+        if not self.train_data_loaders:
+            logging.warning("No training data loaders available.")
+            return 0, 0, {"train_loss": 0.0}
+
+        # self.model.eval()
+
+        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+        running_results = {"batch_sizes": 0, "loss": 0.0}
+
+        for year_idx, train_data_loader in enumerate(self.train_data_loaders):
+            logging.debug(f"Processing year idx {year_idx}")
+            
+            current_dataset = self.train_datasets[year_idx]
+            if self.params.train_year_to_year:
+                logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
+            else:
+                logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
+      
+            data_iter = iter(train_data_loader)
+            data = next(data_iter)
+            for i, data in enumerate(train_data_loader):
+                logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
+                if self.params.mode == "test" and i >= self.params.test_iterations:
+                    logging.info("Test mode: only processing first batches")
+                    pbar.update(total_iterations - self.iters)
+                    break  
+                else:
+                
+                    self.iters += 1
+        
+                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)          
+
+                    loss = self.diff_model(surface_in = input_surface, constant_boundary = self.constant_boundary_data, 
+                                                     varying_boundary = varying_boundary_data, upper_air_in = input_upper_air)   
+
+                    diagnostic_logs = {"loss": loss}
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    
+                    if self.params.scheduler == 'OneCycleLR':
+                        self.scheduler.step()
+                        
+                    if self.world_rank == 0:
+                        #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                        wandb.log(diagnostic_logs, step= self.iters)
+                
+                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
+        pbar.close()
+        pbar.update(1)
+        logs ={"train_loss": loss, "epoch": self.epoch}
+        return logs
+        
+        
+    def train_diff(self):
+        for epoch in range(self.params.epochs):
+            logs = self.training_one_epoch_diffusion()
+            wandb.log(logs, step=epoch)
+            # if epoch % self.params.validation_interval == 0:
+            #     self.validation_diffusion()
+
+
+    # def validation_diffusion(self):
+    #     self.diff_model_.eval()
+    #     #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
+    #     # define the lead times to evaluate (in time steps)
+    #     lead_times_steps = self.params.forecast_lead_times
+    #     with torch.no_grad():
+    #             latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
+
+    #     # Initialize validation loss variables
+    #     valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, \
+    #     valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, \
+    #     multi_step_losses, multi_step_rmse = self.inti_valid_loss(lead_times_steps)
+        
+    #     valid_start = time.time()
+    #     nb = len(self.valid_data_loader)
+
+    #     diagnostic_logs = {}
+
+    #     sample_idx = np.random.randint(len(self.valid_data_loader))
+
+    #     all_predictions = []
+    #     all_ground_truths = []
+    #     acc_predictions = []
+    #     acc_ground_truths = []
+
+    #     # with torch.inference_mode():
+    #     with torch.no_grad():
+    #         for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
+         
+    #     return None
+        
+        
+    def get_diffusion_model(self):
+        self.diff_model =  ConditionalDiffusionModel(
+                            img_channels=3,
+                            latent_dim=128,
+                            unet_base_ch=64,
+                            unet_ch_mults=(1, 2, 4),
+                            T=100,
+                            VAEEncoder=self.model, 
+                            params = self.params# Use default simple encoder
+                         ).to(device)
+                # Count parameters
+        n_params = sum(p.numel() for p in self.diff_model.parameters())
+        print(f"Total parameters: {n_params:,}")
+        return self.diff_model
+
+
+
+    def generation_diff(self):
+        self.diff_model.eval()
+        with torch.no_grad():
+            # Example condition (random noise)
+            cond = torch.randn(1, 3, 64, 64, device=device)
+            samples = self.diff_model.generate(cond, num_samples=2)
+            print(f"Generated shape: {samples.shape}")   # (2, 3, 64, 64)
+            
+            
+            
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run_num", default='0100', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
+    parser.add_argument("--config", default='S2S', type=str) 
+    parser.add_argument("--epsilon_factor", default=0, type=float)
+    parser.add_argument("--epochs", default=0, type=int)
+    parser.add_argument("--run_iter", default=1, type=int)
+    # parser.add_argument("--num_inferences", type = int)
+    # parser.add_argument("--window_size", default = '2,2,2', type = str)
+    parser.add_argument("--fresh_start", default=False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+    parser.add_argument("--local_storage", default=False, type=str)
+    ####### for UCAR
+    parser.add_argument("--local-rank", type=int)
+    #######
+    args = parser.parse_args()
+    params = YParams(os.path.abspath(args.yaml_config), args.config)
+    if args.local_storage:
+        params["data_dir"] = args.local_storage
+        print("using the local storage:",params["data_dir"])
+        
+    print("This is the starting point f")
+    if args.epochs > 0:
+        params['max_epochs'] = args.epochs
+    params['epsilon_factor'] = args.epsilon_factor
+    params['run_iter'] = args.run_iter
+    if hasattr(params, 'diagnostic_variables'):
+        if len(params.diagnostic_variables) > 0:
+            params['has_diagnostic'] = True
+        else:
+            params['has_diagnostic'] = False
+    else:
+        params['has_diagnostic'] = False
+
+    print(f'Has diagnostic: {params.has_diagnostic}')
+    if not hasattr(params, 'num_ensemble_members'):
+        params['num_ensemble_members'] = 1
+
+    if hasattr(params, "wandb_offline"):
+        if params.wandb_offline:
+            os.environ['WANDB_MODE'] = 'offline'
+
+    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    print('World size from Cuda: %d' % torch.cuda.device_count())
+
+
+    ##Check GPU memory 
+    print(torch.cuda.get_device_name(0))
+    print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
+    print(f"Memory Cached: {torch.cuda.memory_reserved(0)/1024**2:.2f} MB")
+
+
+    if 'WORLD_SIZE' in os.environ:
+        params['world_size'] = int(os.environ['WORLD_SIZE'])
+        print(params['world_size'])
+    else:
+        params['world_size'] = torch.cuda.device_count()
+        print(params['world_size'])
+
+
+     
+    if params['world_size'] > 1:
+        
+        if 'derecho' in str(Path(__file__)):
+            local_rank = args.local_rank
+        else:
+            local_rank = int(os.environ["LOCAL_RANK"])
+
+        args.gpu = local_rank
+        
+        # print("##########WORLD RANK: TESTING ", world_rank)
+        params['global_batch_size'] = params.batch_size
+        params['batch_size'] = int(params.batch_size//params['world_size'])
+    else:
+        world_rank = 0
+        local_rank = 0
+
+    torch.manual_seed(world_rank)
+    torch.cuda.set_device(local_rank)
+    torch.backends.cudnn.benchmark = True
+
+    # Set up directory
+    expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
+    if world_rank == 0:
+        if not os.path.isdir(expDir):
+            os.makedirs(expDir)
+            os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
+
+    params['experiment_dir'] = os.path.abspath(expDir)
+    ckpt_path = 'training_checkpoints/ckpt.tar'
+    best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
+    params['checkpoint_path'] = os.path.join(expDir, ckpt_path)
+    params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+
+    checkpoint_exists = os.path.isfile(params.checkpoint_path)
+
+    # Determine whether to resume or start fresh
+    if params.fresh_start or args.fresh_start:
+        params['resuming'] = False
+        if checkpoint_exists and world_rank == 0:
+            logging.info("Fresh start requested. Ignoring existing checkpoint.")
+
+    elif checkpoint_exists:
+        params['resuming'] = True
+        if world_rank == 0:
+            logging.info("Resuming from existing checkpoint.")
+    else:
+        params['resuming'] = False
+        if world_rank == 0:
+            logging.info("No checkpoint found. Starting fresh training run.")
+
+    # # Do not comment this line out please:
+    # # args.resuming = True if os.path.isfile(params.checkpoint_path) else False
+    # args.resuming = False
+    # params['resuming'] = args.resuming
+
+    params['local_rank'] = local_rank
+
+    # Add indicator for precision method and engine
+    if params['use_transformer_engine']:
+        print("Using Transformer Engine")
+    else:
+        print("Using PyTorch native")
+
+    if world_rank == 0:
+        log_file = 'out.log'
+        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
+        logging_utils.log_versions()
+        params.log()
+
+    params['log_to_wandb'] = (world_rank == 0) and params['log_to_wandb']
+    params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
+
+    if world_rank == 0:
+        hparams = ruamelDict()
+        yaml = YAML()
+        for key, value in params.params.items():
+            hparams[str(key)] = str(value)
+        with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
+            yaml.dump(hparams,  hpfile)
+
+    trainer = DiffusionTrainer(params, world_rank)
+    # trainer.setup_model()
+    trainer.train_diff()
+    logging.info('DONE ---- rank %d' % world_rank)
+
+
+    
+    
+
+
+
