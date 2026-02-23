@@ -92,7 +92,7 @@ class ConditionalUNet(nn.Module):
     """
     def __init__(
         self,
-        in_channels: int = 3,
+        in_channels: int = 10,
         base_channels: int = 128,
         channel_mults: tuple = (1, 2, 4, 8),
         latent_dim: int = 256,
@@ -168,13 +168,12 @@ class ConditionalUNet(nn.Module):
         """
         Args:
             x_t:   noisy image   (B, C, H, W)
-            t:     timestep      (B,)  integers in [0, T)
+            t:     timestep      (B,) integers in [0, T)
             cond:  VAE latent z  (B, latent_dim)
         Returns:
             predicted noise      (B, C, H, W)
         """
         t_emb = self.t_emb(t)                  # (B, t_emb_dim)
-
         h = self.init_conv(x_t)
         skips = [h]
 
@@ -190,7 +189,10 @@ class ConditionalUNet(nn.Module):
 
         for (rb1, rb2), us in zip(self.up_blocks, self.up_samples):
             h = us(h)
-            h = torch.cat([h, skips.pop()], dim=1)
+            skip = skips.pop()
+            if h.shape[-2:] != skip.shape[-2:]:
+                h = F.interpolate(h, size=skip.shape[-2:], mode="nearest")
+            h = torch.cat([h, skip], dim=1)
             h = rb1(h, t_emb, cond)
             h = rb2(h, t_emb, cond)
 
@@ -317,16 +319,20 @@ class ConditionalDiffusionModel(nn.Module):
         self.num_ocean_vars = len(params.ocean_variables)
         self.surface_prognostic_idxs = torch.cat((torch.arange(self.num_surface_vars).long(),
                                                   torch.arange(self.num_surface_vars + self.num_diagnostic_vars, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
-        #if self.predict_delta:
+    
         self.encoder = VAEEncoder
+        
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+            
         self.unet = ConditionalUNet(img_channels, unet_base_ch, unet_ch_mults, latent_dim, t_emb_dim)
         self.scheduler_diff = DDPMScheduler(T=T)
 
-    def encode(self, x: torch.Tensor):
-        """Encode image to VAE latent."""
-        mu, logvar = self.encoder(x)
-        z = self.encoder.reparameterize(mu, logvar)
-        return z, mu, logvar
+    # def encode(self, x: torch.Tensor):
+    #     """Encode image to VAE latent."""
+    #     mu, logvar = self.encoder(x)
+    #     z = self.encoder.reparameterize(mu, logvar)
+    #     return z, mu, logvar
 
     def training_step(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False) -> dict[str, torch.Tensor]:
         """
@@ -348,6 +354,7 @@ class ConditionalDiffusionModel(nn.Module):
         x_vae = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
         
         B_vae, C_vae, Pl_vae, _, _ = x_vae.shape
+        print("x_vae shape before reshape ", x_vae.shape)  #torch.Size([2, 192, 10, 45, 90])
         
         x_vae = x_vae.reshape(B_vae, C_vae, -1).transpose(1, 2)
         x_vae = self.encoder.layer1(x_vae)
@@ -358,16 +365,23 @@ class ConditionalDiffusionModel(nn.Module):
         print("x_vae shape before VAE in model fusion", x_vae.shape) # 1, 10350, 384
 
         x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
-        print("x_vae reshaped  reshape ", x_vae.shape) 
+
         # ###########VAE Enocer 1#################
         mu = self.encoder.layer_mu(x_vae) # 
-        print( "mu shape after VAE ", mu.shape)
+
         sigma = self.encoder.layer_sigma(x_vae) 
-        print("sigma shape after VAE ", sigma.shape)
+       
         norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
-        print("norm shape after VAE ", norm.shape)
-        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
-        print("x shape after VAE reparameterize ", z.shape) # 2, 10350, 384
+    
+        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
+        print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
+
+        # Further downscale z and use it as compact conditioning information.
+        z_cond_map = F.avg_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
+        print("z_cond_map shape ", z_cond_map.shape) # 2, 10, 518, 192
+        z_cond = z_cond_map.mean(dim=(2, 3)) ## 2, 10
+        print("z_cond shape before projection ", z_cond.shape) # 2, 10
+    
         #######VAE ENCODER END######## 
 
         # 2. Sample random timestep
@@ -377,7 +391,7 @@ class ConditionalDiffusionModel(nn.Module):
         z_t, noise = self.scheduler_diff.q_sample(z, t)
 
         # 4. Predict noise
-        noise_pred = self.unet(z_t, t, z)
+        noise_pred = self.unet(z_t, t, z_cond)
 
         # 5. Losses
         loss = F.mse_loss(noise_pred, noise)

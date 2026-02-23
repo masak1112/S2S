@@ -1,14 +1,19 @@
 #Train diffusion model##
 
+"""
+Training script for diffusion model.
+Author: Bing Gong
+Date: February 18, 2026
+"""
 
-
-
+from pathlib import Path
 import logging
 import time
 import torch
 from networks.diffusion import ConditionalDiffusionModel
 from train import Trainer
 import tqdm
+from collections import OrderedDict
 import wandb 
 import numpy as np
 from ruamel.yaml import YAML
@@ -16,27 +21,64 @@ import os
 from utils import logging_utils
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 import argparse
+from utils.YParams import YParams
+import torch.distributed as dist
+from torch.amp import autocast, GradScaler
 
+if not dist.is_initialized():
+    dist.init_process_group(backend='nccl', init_method='env://')
 
+world_rank = dist.get_rank()
+print(f"World rank: {world_rank}")
 
 class DiffusionTrainer(Trainer):
     def __init__(self, params,world_rank):
         super().__init__(params,world_rank)
         self.model = self.get_model()
+        
+        self.mask_bool, self.land_mask = self.get_land_mask_bool()
         #load model weights 
-        self.restore_checkpoint(self.params.checkpoint_path)
+        self.restore_checkpoint(self.params.checkpoint_path, optimizer=False)
                 
         # freeze all params in self.model
         for p in self.model.parameters():
             p.requires_grad = False
-        
+
         self.diff_model= self.get_diffusion_model()
-        self.setup_scheduler()
+        self.optimizer = torch.optim.Adam(self.diff_model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
+        if self.params.checkpoint_path_diff and os.path.isfile(self.params.checkpoint_path_diff):
+            self.restore_diff_checkpoint(self.params.checkpoint_path_diff)
+            self.setup_scheduler(restart=False)
+        else:
+            self.setup_scheduler(restart=True)
         self.get_dataset()
+        self.scaler = GradScaler()
         self.params = params
         
+        self.wandb_enabled = bool(getattr(self.params, "log_to_wandb", False) and wandb.run is not None)
+        if getattr(self.params, "log_to_wandb", False) and not self.wandb_enabled and self.world_rank == 0:
+            logging.warning("W&B logging is enabled in config, but wandb.init() is not active. Skipping wandb.log calls.")
         
-
+ 
+    def restore_diff_checkpoint(self, checkpoint_path_diff):
+        """ We intentionally require a checkpoint_dir to be passed
+            in order to allow Ray Tune to use this function """
+        checkpoint = torch.load(checkpoint_path_diff, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        try:
+            self.diff_model.load_state_dict(checkpoint['model_state'])
+        except:
+            new_state_dict = OrderedDict()
+            for key, val in checkpoint['model_state'].items():
+                name = key[7:]
+                new_state_dict[name] = val
+            self.diff_model.load_state_dict(new_state_dict)
+        self.iters = checkpoint['iters']
+        self.startEpoch = checkpoint['epoch']
+        self.epoch = checkpoint['epoch']
+        print('START EPOCH:', self.startEpoch)
+        # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("Restored diffusion checkpoint from epoch %d, iters %d" % (self.epoch, self.iters))
         
     def training_one_epoch_diffusion(self) -> dict[str, torch.Tensor]:
         """
@@ -56,8 +98,7 @@ class DiffusionTrainer(Trainer):
 
         # self.model.eval()
 
-        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
-        running_results = {"batch_sizes": 0, "loss": 0.0}
+        # pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             logging.debug(f"Processing year idx {year_idx}")
@@ -71,43 +112,48 @@ class DiffusionTrainer(Trainer):
             data_iter = iter(train_data_loader)
             data = next(data_iter)
             for i, data in enumerate(train_data_loader):
-                logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
+                if i % 100 == 0:
+                    logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
+                    
                 if self.params.mode == "test" and i >= self.params.test_iterations:
                     logging.info("Test mode: only processing first batches")
-                    pbar.update(total_iterations - self.iters)
+                    # pbar.update(total_iterations - self.iters)
                     break  
                 else:
                 
                     self.iters += 1
-        
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)          
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        loss = self.diff_model.training_step(surface_in = input_surface, constant_boundary = self.constant_boundary_data, 
+                                                        varying_boundary = varying_boundary_data, upper_air_in = input_upper_air)   
 
-                    loss = self.diff_model(surface_in = input_surface, constant_boundary = self.constant_boundary_data, 
-                                                     varying_boundary = varying_boundary_data, upper_air_in = input_upper_air)   
-
-                    diagnostic_logs = {"loss": loss}
                     self.scaler.scale(loss).backward()
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
+
+                    current_lr = self.optimizer.param_groups[0]["lr"]
+                    diagnostic_logs = {"loss": loss, "lr": current_lr}
                         
-                    if self.world_rank == 0:
+                    if self.world_rank == 0 and self.wandb_enabled:
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
-                
-                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
-        pbar.close()
-        pbar.update(1)
+                    
+                    logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
+        # pbar.close()
+        # pbar.update(1)
         logs ={"train_loss": loss, "epoch": self.epoch}
         return logs
         
         
-    def train_diff(self):
-        for epoch in range(self.params.epochs):
+    def train_diff(self, epochs = 20):
+        for epoch in range(epochs):
             logs = self.training_one_epoch_diffusion()
-            wandb.log(logs, step=epoch)
+            self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
+            if self.wandb_enabled:
+                wandb.log(logs, step=self.epoch)
             # if epoch % self.params.validation_interval == 0:
             #     self.validation_diffusion()
 
@@ -146,12 +192,12 @@ class DiffusionTrainer(Trainer):
         
     def get_diffusion_model(self):
         self.diff_model =  ConditionalDiffusionModel(
-                            img_channels=3,
+                            img_channels=10,
                             latent_dim=128,
                             unet_base_ch=64,
                             unet_ch_mults=(1, 2, 4),
                             T=100,
-                            VAEEncoder=self.model, 
+                            VAEEncoder=self.model.module, 
                             params = self.params# Use default simple encoder
                          ).to(device)
                 # Count parameters

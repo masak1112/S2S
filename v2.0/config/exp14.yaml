@@ -2,9 +2,9 @@
 ### base config ###
 base_config: &BASE
   loss: 'weightedl1'
-  lr: 0.00001
+  lr: 0.001
   weight_decay: 3e-6
-  scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
+  scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau' #CosineAnnealingLR
   num_data_workers: 8
   oc_pct_start: 0.1
   oc_div_factor: 1e5
@@ -28,13 +28,15 @@ base_config: &BASE
   mode: 'train'
   num_ensemble_members: 1
   test_iterations: 10000000000
-  checkpoint_path: "/home1/10786/bgong1/SCRATCH/PanguWeather2/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/ckpt.tar"
+  checkpoint_path: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/ckpt.tar"
+  #checkpoint_path_diff: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt.tar"
+  #checkpoint_path: "/home1/10786/bgong1/SCRATCH/PanguWeather2/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/ckpt.tar"
 
 S2S: &S2S
   <<: *BASE
   
-  #data_dir: '/project/pedramh/h5data/h5data'
-  data_dir: "/scratch/08198/tg874973/pangu-s2s/h5data"
+  data_dir: '/project/pedramh/h5data/h5data'
+  #data_dir: "/scratch/08198/tg874973/pangu-s2s/h5data"
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
   surface_variables: ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',
@@ -75,7 +77,7 @@ S2S: &S2S
   calendar: 'standard'
   timedelta_hours: 24
   batch_size: 8
-  max_epochs: 100
+  max_epochs: 200
   has_year_zero: False
   num_levels: 17upper_air_boundary
   #num_levels: 10

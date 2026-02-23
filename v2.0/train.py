@@ -200,10 +200,11 @@ class Trainer():
         #self.setup_model()
         logging.info('Params' % params)
         logging.info("Self.epoch: {} in Trainer".format(self.epoch))
+        self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         
     def setup_model(self):
         # Set up model
-        self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
+        
         self.model = self.get_model()
         self.optimizer = self.get_optimizer()
         self.scaler = GradScaler()
@@ -237,7 +238,7 @@ class Trainer():
         else:
             self.params['ocean_variables'] = []
         if hasattr(self.params, 'mask_output'):
-            self.mask_output = params.mask_output
+            self.mask_output = self.params.mask_output
 
 
 
@@ -274,11 +275,11 @@ class Trainer():
             self.train_data_loaders = []
             self.train_datasets = []
             self.train_samplers = []
-            for year_start in range(params.train_year_start, params.train_year_end):
+            for year_start in range(self.params.train_year_start, self.params.train_year_end):
                 year_end = year_start + 1
                 train_data_loader, train_dataset, train_sampler = get_data_loader(
-                    params, 
-                    params.data_dir, 
+                    self.params, 
+                    self.params.data_dir, 
                     dist.is_initialized(), 
                     year_start=year_start, 
                     year_end=year_end, 
@@ -289,11 +290,11 @@ class Trainer():
                 self.train_samplers.append(train_sampler)
         else:
             train_data_loader, train_dataset, train_sampler = get_data_loader(
-                    params, 
-                    params.data_dir, 
+                    self.params, 
+                    self.params.data_dir, 
                     dist.is_initialized(), 
-                    year_start=params.train_year_start, 
-                    year_end=params.train_year_end, 
+                    year_start=self.params.train_year_start, 
+                    year_end=self.params.train_year_end, 
                     train=True
                 )
             self.train_data_loaders = [train_data_loader]
@@ -301,23 +302,23 @@ class Trainer():
             self.train_samplers = [train_sampler]
 
                                                                         
-        self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                     year_start=params.val_year_start, 
-                                                                     year_end=params.val_year_end, train=False,
-                                                                     num_inferences = params.num_inferences,
+        self.valid_data_loader, self.valid_dataset = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
+                                                                     year_start=self.params.val_year_start, 
+                                                                     year_end=self.params.val_year_end, train=False,
+                                                                     num_inferences = self.params.num_inferences,
                                                                      validate = True)
         
-        self.constant_boundary_data = self.train_datasets[0].constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
+        self.constant_boundary_data = self.train_datasets[0].constant_boundary_data.unsqueeze(0) * torch.ones(self.params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
-        if params.num_ensemble_members > 1:
-            self.constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, params.num_ensemble_members)
-            logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
+        if self.params.num_ensemble_members > 1:
+            self.constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, self.params.num_ensemble_members)
+            logging.info(f'Ensemble Mode. Ensemble size = {self.params.num_ensemble_members}\n')
 
          # Load climatology
-        climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
+        climatology_path = os.path.join(self.params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
         self.climatology = self.climatology.rename({'time':'dayofyear'})
-        if world_rank == 0:
+        if self.world_rank == 0:
             logging.info('rank %d, data loader initialized' % self.world_rank)
 
 
@@ -385,17 +386,17 @@ class Trainer():
         """ 
         if self.params.nettype == 'pangu_plasim':
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = self.land_mask).to(self.device)
-                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask).to(self.device)
+                self.integrator = Integrator(self.params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
-                if hasattr(params, 'mask_fill'):
-                    self.model = PanguModel_Plasim(params, land_mask = self.land_mask, 
-                                               mask_fill = params.mask_fill).to(self.device)
+                if hasattr(self.params, 'mask_fill'):
+                    self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
+                                               mask_fill = self.params.mask_fill).to(self.device)
                 else:
-                    self.model = PanguModel_Plasim(params, land_mask = self.land_mask, 
+                    self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         else:
@@ -404,15 +405,15 @@ class Trainer():
         
         if dist.is_initialized():
             self.model = DistributedDataParallel(self.model,
-                                                 device_ids=[params.local_rank],
-                                                 output_device=[params.local_rank], 
+                                                 device_ids=[self.params.local_rank],
+                                                 output_device=[self.params.local_rank], 
                                                  find_unused_parameters=True)
         #Logging
         if self.params.log_to_wandb:
             wandb.watch(self.model)
         '''if params.log_to_screen:
         logging.info(self.model)'''
-        if params.log_to_screen:
+        if self.params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
         return self.model
         
@@ -425,14 +426,14 @@ class Trainer():
 
 
     def get_optimizer(self):
-        if params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+        if self.params.optimizer_type == 'FusedAdam':
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay, fused=True)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
         return self.optimizer 
 
 
-    def setup_scheduler(self):
+    def setup_scheduler(self, restart = False):
         if self.params.scheduler == 'ReduceLROnPlateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, factor=0.2, patience=5, mode='min')
         elif self.params.scheduler == 'CosineAnnealingLR':
@@ -455,7 +456,7 @@ class Trainer():
             else:
                 final_div_factor = 1e4
 
-            if self.startEpoch < 1:
+            if self.startEpoch < 1 or restart :
                 self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     self.optimizer,
                     max_lr=self.params.lr,
@@ -468,7 +469,7 @@ class Trainer():
             else:
                 self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     self.optimizer,
-                    max_lr=params.lr,
+                    max_lr=self.params.lr,
                     total_steps=total_steps,
                     steps_per_epoch=steps_per_epoch,
                     last_epoch=(self.startEpoch-1) * steps_per_epoch,
@@ -1264,7 +1265,7 @@ class Trainer():
                     'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
-    def restore_checkpoint(self, checkpoint_path):
+    def restore_checkpoint(self, checkpoint_path, optimizer=True):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
@@ -1279,9 +1280,9 @@ class Trainer():
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         self.epoch = checkpoint['epoch']
-        print('START EPOCH:', self.startEpoch)
+        # print('START EPOCH:', self.startEpoch)
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
-        if self.params.resuming:
+        if self.params.resuming and optimizer:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 
