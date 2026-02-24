@@ -434,6 +434,13 @@ class Trainer():
 
 
     def setup_scheduler(self, restart = False):
+        # PyTorch schedulers with last_epoch >= 0 expect each optimizer
+        # param group to contain an `initial_lr` value when resuming.
+        if (restart) and self.startEpoch > 0:
+            for group in self.optimizer.param_groups:
+                if 'initial_lr' not in group:
+                    group['initial_lr'] = group['lr']
+
         if self.params.scheduler == 'ReduceLROnPlateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, factor=0.2, patience=5, mode='min')
         elif self.params.scheduler == 'CosineAnnealingLR':

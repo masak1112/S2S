@@ -43,14 +43,16 @@ class TimestepCondResBlock(nn.Module):
 
         self.skip = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
 
+
     def forward(
         self,
         x: torch.Tensor,
         t_emb: torch.Tensor,
         cond: torch.Tensor,
     ) -> torch.Tensor:
+        
         h = self.conv1(F.silu(self.norm1(x)))
-
+        
         # Timestep conditioning via scale-shift (AdaGN style)
         t_scale, t_shift = self.t_proj(t_emb).unsqueeze(-1).unsqueeze(-1).chunk(2, dim=1)
         h = self.norm2(h) * (1 + t_scale) + t_shift
@@ -158,6 +160,19 @@ class ConditionalUNet(nn.Module):
         # --- output ---
         self.out_norm = nn.GroupNorm(8, in_ch)
         self.out_conv = nn.Conv2d(in_ch, in_channels, 1)
+        
+        cond_in_dim = 10
+        self.cond_norm = nn.LayerNorm(cond_in_dim)
+        self.cond_linear1 = nn.Linear(cond_in_dim, base_channels)
+        self.cond_linear2 = nn.Linear(base_channels, latent_dim)
+        
+        
+    def cond_proj(self, cond: torch.Tensor) -> torch.Tensor:
+        cond = self.cond_norm(cond)
+        cond = self.cond_linear1(cond)
+        cond = F.silu(cond)
+        cond = self.cond_linear2(cond)
+        return cond
 
     def forward(
         self,
@@ -176,6 +191,9 @@ class ConditionalUNet(nn.Module):
         t_emb = self.t_emb(t)                  # (B, t_emb_dim)
         h = self.init_conv(x_t)
         skips = [h]
+        
+        cond = self.cond_proj(cond)            # (B, latent_dim)
+       
 
         for (rb1, rb2), ds in zip(self.down_blocks, self.down_samples):
             h = rb1(h, t_emb, cond)
@@ -324,6 +342,8 @@ class ConditionalDiffusionModel(nn.Module):
         
         for param in self.encoder.parameters():
             param.requires_grad = False
+
+
             
         self.unet = ConditionalUNet(img_channels, unet_base_ch, unet_ch_mults, latent_dim, t_emb_dim)
         self.scheduler_diff = DDPMScheduler(T=T)
@@ -333,6 +353,7 @@ class ConditionalDiffusionModel(nn.Module):
     #     mu, logvar = self.encoder(x)
     #     z = self.encoder.reparameterize(mu, logvar)
     #     return z, mu, logvar
+
 
     def training_step(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False) -> dict[str, torch.Tensor]:
         """
@@ -381,6 +402,8 @@ class ConditionalDiffusionModel(nn.Module):
         print("z_cond_map shape ", z_cond_map.shape) # 2, 10, 518, 192
         z_cond = z_cond_map.mean(dim=(2, 3)) ## 2, 10
         print("z_cond shape before projection ", z_cond.shape) # 2, 10
+
+
     
         #######VAE ENCODER END######## 
 

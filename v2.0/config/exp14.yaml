@@ -29,7 +29,7 @@ base_config: &BASE
   num_ensemble_members: 1
   test_iterations: 10000000000
   checkpoint_path: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/ckpt.tar"
-  #checkpoint_path_diff: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt.tar"
+  checkpoint_path_diff: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt.tar"
   #checkpoint_path: "/home1/10786/bgong1/SCRATCH/PanguWeather2/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/ckpt.tar"
 
 S2S: &S2S
