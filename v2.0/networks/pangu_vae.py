@@ -87,7 +87,7 @@ USE_TE = False
 #         amax_compute_algo="max"
 #     )
 
-class PanguModel_Plasim(nn.Module):
+class PanguModel_Plasim_VAE(nn.Module):
     """
     Pangu A PyTorch impl of: `Pangu-Weather: A 3D High-Resolution Model for Fast and Accurate Global Weather Forecast`
     - https://arxiv.org/abs/2211.02556
@@ -104,7 +104,6 @@ class PanguModel_Plasim(nn.Module):
         #####
         global USE_TE
         USE_TE = params.use_transformer_engine
-        self.checkpointing = 0
         self.use_reentrant = False
         if hasattr(params, 'checkpointing'):
             self.checkpointing = params.checkpointing
@@ -124,12 +123,12 @@ class PanguModel_Plasim(nn.Module):
                 amax_compute_algo="max"
             )
 
-        #if hasattr(params, 'embed_dim'):
-        #   embed_dim = params.embed_dim
-        # else:
-        #     embed_dim = 192
-        embed_dim = 240
-        print(f"Embedding Dimensions are {embed_dim}")
+        if hasattr(params, 'embed_dim'):
+            embed_dim = params.embed_dim
+        else:
+            embed_dim = 192
+        
+        #print(f"Embedding Dimensions are {embed_dim}")
 
         #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
@@ -146,8 +145,6 @@ class PanguModel_Plasim(nn.Module):
         self.num_ocean_vars = 0
         self.diagnostic_vars = []
         self.num_diagnostic_vars = 0
-        params["patch_size"] = (2,2,2)
-        params["window_size"] = (2,6,10)
 
         if hasattr(params, 'land_variables'):
             if len(params.land_variables) > 0:
@@ -195,21 +192,23 @@ class PanguModel_Plasim(nn.Module):
         if hasattr(params, 'diagnostic_variables'):
             self.diagnostic_vars = params.diagnostic_variables
             self.num_diagnostic_vars = len(self.diagnostic_vars)
-        print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
+        #print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
         if hasattr(params, "drop_rate"):
             if params.drop_rate > 0.:
                 drop_path = np.zeros(np.sum(params.depths)).tolist()
         else:
             params['drop_rate'] = 0.
-        
+
         self.num_surface_vars = len(params.surface_variables)
         self.num_atmo_vars = len(params.upper_air_variables)
         self.num_boundary_vars = len(params.constant_boundary_variables) + len(params.varying_boundary_variables)
         self.atmo_resolution = [len(params.levels)] + params.horizontal_resolution
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
+
         self.surface_prognostic_idxs = torch.cat((torch.arange(self.num_surface_vars).long(), 
-                                                  torch.arange(self.num_surface_vars + self.num_diagnostic_vars, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
+                                                  torch.arange(self.num_surface_vars + self.num_diagnostic_vars, 
+                                                               self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
         #if self.predict_delta:
         #    try:
         #        assert None not in [surface_ff_std, surface_delta_std, upper_air_ff_std, upper_air_delta_std]
@@ -246,9 +245,7 @@ class PanguModel_Plasim(nn.Module):
         self.num_varying_boundary_vars = len(params.varying_boundary_variables)
         self.idx_upper_air_var_bound= self.varying_boundary_variables.index('toa_incident_solar_radiation') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
-    
-        
-        #####
+
 
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)        
         if self.upper_air_boundary:
@@ -281,13 +278,12 @@ class PanguModel_Plasim(nn.Module):
                                 (self.patchembed2d.output_size[1] - self.patchembed2d.output_size[1] % params.updown_scale_factor) \
                                 // params.updown_scale_factor + self.patchembed2d.output_size[1] % params.updown_scale_factor)
 
-        self.downscale_resolution = downscale_resolution
-        # print("downscale_resolution", downscale_resolution)
-        self.EST_input_resolution = EST_input_resolution
-        # print("EST_input_resolution", EST_input_resolution)
+        self.downscale_resolution = downscale_resolution # (10, 23, 45)
+        self.EST_input_resolution = EST_input_resolution #(10, 45, 90)
+
         if not self.vertical_windowing:
             self.window_size[0] = EST_input_resolution[0]
-        # print("EST_input_resolution", EST_input_resolution)
+
 
         self.layer1 = EarthSpecificLayer(
             dim=embed_dim,
@@ -300,17 +296,7 @@ class PanguModel_Plasim(nn.Module):
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
-        print('Embed Dim:')
-        print(embed_dim)
-        print('Input resolution:')
-        print(EST_input_resolution)
-        print('depth')
-        print(params.depths[0])
-        print('num_heads')
-        print(num_heads[0])
-        print('drop_path:')
-        print(drop_path[:depths_cumsum[0]])
-        
+    
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
                                      downsample_factor=params.updown_scale_factor)
         
@@ -322,7 +308,7 @@ class PanguModel_Plasim(nn.Module):
             window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]],
             vertical_windowing=params.vertical_windowing,
-            drop=params.dropout_rate,
+            drop=params.drop_rate,
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
@@ -334,11 +320,17 @@ class PanguModel_Plasim(nn.Module):
             window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]],
             vertical_windowing=params.vertical_windowing,
-            drop=params.dropout_rate,
+            drop=params.drop_rate,
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
-        
+        #############VAE part #############
+        self.layer_mu =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim*params.updown_scale_factor, kernel_size=1)
+        self.layer_sigma = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim* params.updown_scale_factor, kernel_size=1)
+
+        #self.layer_perturbation2_e2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor,  out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
+
+
 
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
@@ -354,8 +346,10 @@ class PanguModel_Plasim(nn.Module):
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
-        
-        # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
+
+    
+
+
         
         if self.subpixel_deconv:
             if self.recovery_head:
@@ -388,17 +382,26 @@ class PanguModel_Plasim(nn.Module):
             self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars)
             self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
-
-    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False, vae_inputs=None):
+    def reparameterize(self, mu, sigma):
+            std = torch.exp(0.5 * sigma)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+    
+    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, 
+                     target_surface=None, target_upper_air=None, train = False):
         """
         Args:
             surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
             surface_mask (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
             upper_air (torch.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
+            train (bool): If True, the model will be trained, otherwise it will be evaluated.
         """
+        
+        
         if len(constant_boundary.size()) == 3:
             constant_boundary = constant_boundary.unsqueeze(0)
-        
+
+        ##############Data Preparation for Encoder 1############################
         if self.upper_air_boundary:
             upper_air_varying_boundary = varying_boundary[:,self.idx_upper_air_var_bound, :, :].unsqueeze(1)
             surface_varying_boundary = varying_boundary[:,self.idx_surface_var_bound, :, :]
@@ -407,215 +410,73 @@ class PanguModel_Plasim(nn.Module):
             upper_air_varying_boundary = self.patchembed2d_upper_air_boundary(upper_air_varying_boundary)
             upper_air = self.patchembed3d(upper_air_in)
             x = torch.cat([upper_air_varying_boundary.unsqueeze(2), upper_air, surface.unsqueeze(2)], dim=2)
-        else:
-            surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+        else: 
+            # print("surface_in shape is ", surface_in.shape) #1, 9, 180, 360
+            # print("constant_boundary shape is ", constant_boundary.shape) # 4, 2, 180, 360
+            # print("varying_boundary shape is ", varying_boundary.shape) #1, 1, 180, 360
+            surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1) 
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air_in)
             x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
 
-
-       
-        # print(x.size())
         B, C, Pl, Lat, Lon = x.shape
+        
         x = x.reshape(B, C, -1).transpose(1, 2)
+        x = self.layer1(x)
+        skip = x
+        x = self.downsample(x) #8, 10350, 384
+        x = self.layer2(x)
+        x = self.layer3(x)
+        print("x shape before VAE ", x.shape) # 1, 10350, 384
 
-        # x = self.layer1(x)
-        # skip = x
+        x = x.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
+        # x_vae = x #8, 10, 23, 45, 384
 
-        # x = self.downsample(x)
-        # x = self.layer2(x)
-        # x = self.layer3(x)
-        # x = self.upsample(x)
-        # x = self.layer4(x)
-
-        #OPTIMIZATION
-
-        if USE_TE:
-            # with te.fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe):
-            if self.checkpointing == 2 and train:
-                x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
-            else:
-                x = self.layer1(x, train)
-            #print(f'Shape after layer 1: {x.shape}')
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
-            skip = x
-            x = self.downsample(x)
-            #print(f'Shape after downsample: {x.shape}')
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(torch.std(x))
-            if self.checkpointing == 2 and train:
-                x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
-                x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
-                x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
-                x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
-            else:
-                x = self.layer2(x, train)
-                x = self.layer3(x, train)
-                x = self.upsample(x)
-                #print(f'Shape after upsample: {x.shape}')
-                #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-                #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-                #print(torch.std(x))
-                x = self.layer4(x, train)
-        else:
-            # with amp.autocast(enabled=True):
-            if self.checkpointing == 2 and train:
-                x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
-            else:
-                x = self.layer1(x, train)
-            #print(f'Shape after layer 1: {x.shape}')
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
-            skip = x
-            x = self.downsample(x)
-            if self.checkpointing == 2 and train:
-                x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
-                x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
-                print("After layer 3 shape:", x.shape)
-                x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
-                x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
-            else:
-                x = self.layer2(x, train)
-                x = self.layer3(x, train)
-                print("After layer 3 shape:", x.shape) #2, 40500, 480
-
-                x = self.upsample(x)
-                x = self.layer4(x, train)
+        print("x reshaped after reshape ", x.shape) 
+        # ###########VAE Enocer 1#################
+        mu = self.layer_mu(x) # 
+        print( "mu shape after VAE ", mu.shape)
+        sigma = self.layer_sigma(x) 
+        print("sigma shape after VAE ", sigma.shape)
+        norm = self.reparameterize(mu, sigma) #1, 192, 10, 23, 45
+        print("norm shape after VAE ", norm.shape)
+   
+        x = norm.permute(0, 2, 3,4, 1).reshape(B, -1, self.embed_dim * self.updown_scale_factor) #8, 10350, 384
+        print("x shape after VAE reparameterize ", x.shape) # 1, 5175, 384
+        x = self.upsample(x)
+        x = self.layer4(x) 
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
 
-        if self.predict_delta:
-            output_surface_delta  = output[:, :, -1, :, :]
-            if self.upper_air_boundary:
-                output_upper_air_delta = output[:, :, 1:-1, :, :]
-            else:
-                output_upper_air_delta = output[:, :, :-1, :, :]
-            if self.checkpointing > 0 and train:
-                output_2D = checkpoint(self.patchrecovery2d, output_surface_delta, use_reentrant=self.use_reentrant)
-            else:
-                output_2D = self.patchrecovery2d(output_surface_delta)
-            output_surface = output_2D[:, self.surface_prognostic_idxs]
-            if self.has_land and self.mask_output:
-                output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
-            if self.has_ocean and self.mask_output:
-                output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
-            if self.checkpointing > 0 and train:
-                output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air_delta, use_reentrant=self.use_reentrant)
-            else:
-                output_upper_air = self.patchrecovery3d(output_upper_air_delta)
+
+
+        output_surface = output[:, :, -1, :, :]
+        if self.upper_air_boundary:
+            output_upper_air = output[:, :, 1:-1, :, :]
         else:
-            output_surface = output[:, :, -1, :, :]
-            if self.upper_air_boundary:
-                output_upper_air = output[:, :, 1:-1, :, :]
-            else:
-                output_upper_air = output[:, :, :-1, :, :]
-            if self.checkpointing > 0 and train:
-                output_2D = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=self.use_reentrant)
-            else:
-                output_2D = self.patchrecovery2d(output_surface)
-            output_surface = output_2D[:, self.surface_prognostic_idxs]
-            if self.has_land and self.mask_output:
-                output_surface[:, self.num_surface_vars : self.num_surface_vars + self.num_land_vars] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
-            if self.has_ocean and self.mask_output:
-                output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
-
-            if self.checkpointing > 0 and train:
-                output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=self.use_reentrant)
-            else:
-                output_upper_air = self.patchrecovery3d(output_upper_air)
-        if self.num_diagnostic_vars > 0:
-            output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
-                output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
-            return output_surface, output_upper_air, output_diagnostic
+            output_upper_air = output[:, :, :-1, :, :]
+        if self.checkpointing > 0 and train:
+            output_2D = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=self.use_reentrant)
         else:
-            return output_surface, output_upper_air
-        
-"""
-        
-    def integrate(self, surface, upper_air, surface_dx, upper_air_dx):
-        if not self.predict_delta:
-            raise ValueError('Model is set to predict full field. integrate cannot be called.')
+            output_2D = self.patchrecovery2d(output_surface)
+        output_surface = output_2D[:, self.surface_prognostic_idxs]
+        if self.has_land and self.mask_output:
+            output_surface[:, self.num_surface_vars : self.num_surface_vars + self.num_land_vars] = \
+                self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
+        if self.has_ocean and self.mask_output:
+            output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
+                self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
+        if self.checkpointing > 0 and train:
+            output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=self.use_reentrant)
         else:
-            output_surface = self.delta_integrator(surface, surface_dx * (self.surface_delta_std / self.surface_ff_std).reshape(1, -1, 1, 1), 1.)
-            output_upper_air = self.delta_integrator(upper_air, 
-                                                        upper_air_dx * (self.upper_air_delta_std / self.upper_air_ff_std).reshape(1, -1, self.atmo_resolution[0], 1, 1),
-                                                        1.)
-            return output_surface, output_upper_air
-"""
+            output_upper_air = self.patchrecovery3d(output_upper_air)
+            
+
+
+        return output_surface, output_upper_air, mu, sigma
+            
         
-
-'''
-PatchEmbed2D and PatchEmbed3D from utils.patch_embed
-class PatchEmbedding:
-  def __init__(self, patch_size, dim):
-    ###Patch embedding operation###
-    # Here we use convolution to partition data into cubes
-    self.conv = Conv3d(input_dims=5, output_dims=dim, kernel_size=patch_size, stride=patch_size)
-    self.conv_surface = Conv2d(input_dims=7, output_dims=dim, kernel_size=patch_size[1:], stride=patch_size[1:])
-
-    # Load constant masks from the disc
-    self.land_mask, self.soil_type, self.topography = LoadConstantMask()
-    
-  def forward(self, input, input_surface):
-    # Zero-pad the input
-    input = Pad3D(input)
-    input_surface = Pad2D(input_surface)
-
-    # Apply a linear projection for patch_size[0]*patch_size[1]*patch_size[2] patches, patch_size = (2, 4, 4) as in the original paper
-    input = self.conv(input)
-
-    # Add three constant fields to the surface fields
-    input_surface =  Concatenate(input_surface, self.land_mask, self.soil_type, self.topography)
-
-    # Apply a linear projection for patch_size[1]*patch_size[2] patches
-    input_surface = self.conv_surface(input_surface)
-
-    # Concatenate the input in the pressure level, i.e., in Z dimension
-    x = Concatenate(input, input_surface)
-
-    # Reshape x for calculation of linear projections
-    x = TransposeDimensions(x, (0, 2, 3, 4, 1))
-    x = reshape(x, target_shape=(x.shape[0], 8*360*181, x.shape[-1]))
-    return x
-'''
-
-
-'''
-PatchRecovery2D and PatchRecovery3D from utils.patch_recovery
-class PatchRecovery:
-  def __init__(self, dim):
-    ###Patch recovery operation###
-    # Hear we use two transposed convolutions to recover data
-    self.conv = ConvTranspose3d(input_dims=dim, output_dims=5, kernel_size=patch_size, stride=patch_size)
-    self.conv_surface = ConvTranspose2d(input_dims=dim, output_dims=4, kernel_size=patch_size[1:], stride=patch_size[1:])
-    
-  def forward(self, x, Z, H, W):
-    # The inverse operation of the patch embedding operation, patch_size = (2, 4, 4) as in the original paper
-    # Reshape x back to three dimensions
-    x = TransposeDimensions(x, (0, 2, 1))
-    x = reshape(x, target_shape=(x.shape[0], x.shape[1], Z, H, W))
-
-    # Call the transposed convolution
-    output = self.conv(x[:, :, 1:, :, :])
-    output_surface = self.conv_surface(x[:, :, 0, :, :])
-
-    # Crop the output to remove zero-paddings
-    output = Crop3D(output)
-    output_surface = Crop2D(output_surface)
-    return output, output_surface
-'''
-
 class Mask(nn.Module):
     def __init__(self, mask, mask_fill = None):
         super().__init__() 
@@ -789,128 +650,14 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
             for i in range(depth)
         ])
 
-    def forward(self, x, train = False):
+    def forward(self, x):
         for blk in self.blocks:
-            if self.checkpointing > 2 and train:
-                x = checkpoint(blk, x, use_reentrant=self.use_reentrant)
-            else:
-                x = blk(x)
+            # if self.checkpointing > 2 and train:
+            #     x = checkpoint(blk, x, use_reentrant=self.use_reentrant)
+            # else:
+            x = blk(x)
         return x
 
-
-
-# class EarthSpecificBlock(nn.Module):
-#     """
-#     3D Transformer Block
-#     Args:
-#         dim (int): Number of input channels.
-#         input_resolution (tuple[int]): Input resulotion.
-#         num_heads (int): Number of attention heads.
-#         window_size (tuple[int]): Window size [pressure levels, latitude, longitude].
-#         shift_size (tuple[int]): Shift size for SW-MSA [pressure levels, latitude, longitude].
-#         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-#         qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-#         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-#         drop (float, optional): Dropout rate. Default: 0.0
-#         attn_drop (float, optional): Attention dropout rate. Default: 0.0
-#         drop_path (float, optional): Stochastic depth rate. Default: 0.0
-#         act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-#         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
-#     """
-
-#     # CHANGE NORM LAYER BACK TO nn.LayerNorm if not faster
-
-#     def __init__(self, dim, input_resolution, num_heads, window_size=None, shift_size=None, mlp_ratio=4.,
-#                  qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU,
-#                  norm_layer=te.LayerNorm): # TE Change
-#         super().__init__()
-#         window_size = (2, 6, 12) if window_size is None else window_size
-#         shift_size = (1, 3, 6) if shift_size is None else shift_size
-#         self.dim = dim
-#         self.input_resolution = input_resolution
-#         self.num_heads = num_heads
-#         self.window_size = window_size
-#         self.shift_size = shift_size
-#         self.mlp_ratio = mlp_ratio
-
-#         self.norm1 = norm_layer(dim)
-#         padding = get_pad3d(input_resolution, window_size)
-#         self.pad = nn.ZeroPad3d(padding)
-
-#         pad_resolution = list(input_resolution)
-#         pad_resolution[0] += (padding[-1] + padding[-2])
-#         pad_resolution[1] += (padding[2] + padding[3])
-#         pad_resolution[2] += (padding[0] + padding[1])
-
-#         self.attn = EarthAttention3D(
-#             dim=dim, input_resolution=pad_resolution, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
-#             qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop
-#         )
-
-#         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-#         self.norm2 = norm_layer(dim)
-#         mlp_hidden_dim = int(dim * mlp_ratio)
-#         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-
-#         shift_pl, shift_lat, shift_lon = self.shift_size
-#         self.roll = shift_pl and shift_lon and shift_lat
-
-#         if self.roll:
-#             attn_mask = get_shift_window_mask(pad_resolution, window_size, shift_size)
-#         else:
-#             attn_mask = None
-
-#         self.register_buffer("attn_mask", attn_mask)
-
-#     def forward(self, x: torch.Tensor):
-#         Pl, Lat, Lon = self.input_resolution
-#         B, L, C = x.shape
-#         assert L == Pl * Lat * Lon, "input feature has wrong size"
-
-#         shortcut = x
-#         x = self.norm1(x)
-#         x = x.view(B, Pl, Lat, Lon, C)
-
-#         # start pad
-#         x = self.pad(x.permute(0, 4, 1, 2, 3)).permute(0, 2, 3, 4, 1)
-
-#         _, Pl_pad, Lat_pad, Lon_pad, _ = x.shape
-
-#         shift_pl, shift_lat, shift_lon = self.shift_size
-#         if self.roll:
-#             shifted_x = torch.roll(x, shifts=(-shift_pl, -shift_lat, -shift_lon), dims=(1, 2, 3))
-#             x_windows = window_partition(shifted_x, self.window_size)
-#             # B*num_lon, num_pl*num_lat, win_pl, win_lat, win_lon, C
-#         else:
-#             shifted_x = x
-#             x_windows = window_partition(shifted_x, self.window_size)
-#             # B*num_lon, num_pl*num_lat, win_pl, win_lat, win_lon, C
-
-#         win_pl, win_lat, win_lon = self.window_size
-#         x_windows = x_windows.view(x_windows.shape[0], x_windows.shape[1], win_pl * win_lat * win_lon, C)
-#         # B*num_lon, num_pl*num_lat, win_pl*win_lat*win_lon, C
-
-#         attn_windows = self.attn(x_windows, mask=self.attn_mask)  # B*num_lon, num_pl*num_lat, win_pl*win_lat*win_lon, C
-
-#         attn_windows = attn_windows.view(attn_windows.shape[0], attn_windows.shape[1], win_pl, win_lat, win_lon, C)
-
-#         if self.roll:
-#             shifted_x = window_reverse(attn_windows, self.window_size, Pl_pad, Lat_pad, Lon_pad)
-#             # B * Pl * Lat * Lon * C
-#             x = torch.roll(shifted_x, shifts=(shift_pl, shift_lat, shift_lon), dims=(1, 2, 3))
-#         else:
-#             shifted_x = window_reverse(attn_windows, self.window_size, Pl_pad, Lat_pad, Lon_pad)
-#             x = shifted_x
-
-#         # crop, end pad
-#         x = crop3d(x.permute(0, 4, 1, 2, 3), self.input_resolution).permute(0, 2, 3, 4, 1)
-
-#         x = x.reshape(B, Pl * Lat * Lon, C)
-#         x = shortcut + self.drop_path(x)
-
-#         x = x + self.drop_path(self.mlp(self.norm2(x)))
-
-#         return x
 
 
 # CHANGE SO THAT I CAN REPLACE THE EARTHSPECIFIC LAYER NORMALIZATION SCHEME WITH TE. Must be contiguous before applying the normalization. 
@@ -951,8 +698,6 @@ class EarthSpecificBlock(nn.Module):
         self.mlp_ratio = mlp_ratio
 
         norm_layer = te.LayerNorm if USE_TE else nn.LayerNorm
-
-
 
         self.norm1 = norm_layer(dim)
         self.norm2 = norm_layer(dim)
@@ -998,6 +743,7 @@ class EarthSpecificBlock(nn.Module):
             x = self.norm1(x.contiguous())
         else:
             x = self.norm1(x)
+
         x = x.view(B, Pl, Lat, Lon, C)
 
         # start pad
@@ -1006,6 +752,7 @@ class EarthSpecificBlock(nn.Module):
         _, Pl_pad, Lat_pad, Lon_pad, _ = x.shape
 
         shift_pl, shift_lat, shift_lon = self.shift_size
+
         if self.roll:
             shifted_x = torch.roll(x, shifts=(-shift_pl, -shift_lat, -shift_lon), dims=(1, 2, 3))
             x_windows = window_partition(shifted_x, self.window_size)
@@ -1178,36 +925,3 @@ def PerlinNoise():
   perlin_noise = noise_scale*GenerateFractalNoise((H, W), (period_number, period_number), octaves, persistence)
   return perlin_noise
   '''
-
-
-class NoiseConv(nn.Module):
-    """
-    Input:  (B, 10350, 384)
-    Output: (B, 40500, 480)
-
-    Uses ConvTranspose1d with:
-      stride=4, kernel_size=4, padding=450, output_padding=0
-    which gives:
-      L_out = (L_in-1)*4 - 2*450 + 4 = 40500
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.up = nn.ConvTranspose1d(
-            in_channels=384,
-            out_channels=480,
-            kernel_size=4,
-            stride=4,
-            padding=450,
-            output_padding=0,
-            bias=True,
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.ndim != 3 or x.shape[-1] != 384:
-            raise ValueError(f"Expected (B, L, 384), got {tuple(x.shape)}")
-
-        x = x.transpose(1, 2)        # (B, 384, L)
-        x = self.up(x)               # (B, 480, 40500)
-        x = x.transpose(1, 2)        # (B, 40500, 480)
-        return x

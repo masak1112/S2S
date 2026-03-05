@@ -38,6 +38,7 @@ from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
+from networks.pangu_vae import PanguModel_Plasim_VAE
 from utils.utils import log_memory_usage, log_gpu_memory   
 
 logging_utils.config_logger()
@@ -387,42 +388,50 @@ class Trainer():
         if self.params.nettype == 'pangu_plasim':
             if self.params.predict_delta:
                 self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask).to(self.device)
+                
                 self.integrator = Integrator(self.params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(self.params, 'mask_fill'):
-                    self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
+                    self.model_vae = PanguModel_Plasim_VAE(self.params, land_mask = self.land_mask, mask_fill = self.params.mask_fill).to(self.device)
+                    self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
                                                mask_fill = self.params.mask_fill).to(self.device)
                 else:
-                    self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
+                    self.model_vae = PanguModel_Plasim_VAE(self.params, land_mask = self.land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
+                    self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask,
+                                               mask_fill = self.train_datasets[0].mask_fill).to(self.device)    
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
 
         
         if dist.is_initialized():
-            self.model = DistributedDataParallel(self.model,
+            self.model_vae = DistributedDataParallel(self.model_vae,
+                                                 device_ids=[self.params.local_rank],
+                                                 output_device=[self.params.local_rank], 
+                                                 find_unused_parameters=True)
+            self.model_det = DistributedDataParallel(self.model_det,
                                                  device_ids=[self.params.local_rank],
                                                  output_device=[self.params.local_rank], 
                                                  find_unused_parameters=True)
         #Logging
         if self.params.log_to_wandb:
-            wandb.watch(self.model)
+            wandb.watch(self.model_vae)
         '''if params.log_to_screen:
         logging.info(self.model)'''
         if self.params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-        return self.model
+        return self.model_vae, self.model_det
         
 
     def count_parameters(self):
         """
         Count the trainable parameters
         """
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        return sum(p.numel() for p in self.model_det.parameters() if p.requires_grad)
 
 
     def get_optimizer(self):
@@ -1272,25 +1281,28 @@ class Trainer():
                     'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
-    def restore_checkpoint(self, checkpoint_path, optimizer=True):
+    def restore_checkpoint(self, checkpoint_path_vae=None, checkpoint_path_det=None, optimizer=True):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        checkpoint_vae = torch.load(checkpoint_path_vae, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        checkpoint_det = torch.load(checkpoint_path_det, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False) if checkpoint_path_det else None
         try:
-            self.model.load_state_dict(checkpoint['model_state'])
+            self.model_vae.load_state_dict(checkpoint_vae['model_state'])
+            self.model_det.load_state_dict(checkpoint_det['model_state']) if checkpoint_det else None
         except:
             new_state_dict = OrderedDict()
-            for key, val in checkpoint['model_state'].items():
+            for key, val in checkpoint_vae['model_state'].items():
                 name = key[7:]
                 new_state_dict[name] = val
-            self.model.load_state_dict(new_state_dict)
-        self.iters = checkpoint['iters']
-        self.startEpoch = checkpoint['epoch']
-        self.epoch = checkpoint['epoch']
+            self.model_vae.load_state_dict(new_state_dict)
+        self.iters = checkpoint_vae['iters']
+        self.startEpoch = checkpoint_vae['epoch']
+        self.epoch = checkpoint_vae['epoch']
         # print('START EPOCH:', self.startEpoch)
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming and optimizer:
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.optimizer.load_state_dict(checkpoint_vae['optimizer_state_dict'])
+        print("Checkpoint restored for vae and determinstic model. Starting from epoch {}, iteration {}".format(self.epoch, self.iters))
 
 
 

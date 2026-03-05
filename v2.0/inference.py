@@ -1,4 +1,6 @@
 from networks.pangu import PanguModel_Plasim
+from networks.pangu_vae import PanguModel_Plasim_VAE
+from networks.diffusion import ConditionalDiffusionModel
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
@@ -26,6 +28,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 from utils.integrate import Integrator, forward_euler
+from train import Trainer
 
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -39,7 +42,7 @@ torch.backends.cudnn.allow_tf32 = True
 # rank = comm.Get_rank()
 # size = comm.Get_size()
 
-class Stepper():
+class Stepper(Trainer):
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
@@ -69,7 +72,8 @@ class Stepper():
             self.params['ocean_variables'] = []
         if hasattr(self.params, 'mask_output'):
             self.mask_output = params.mask_output
-
+        
+        self.num_diagnostic_vars = len(self.params.diagnostic_variables) if self.params.has_diagnostic else 0
 
         # if params.log_to_wandb:
         #     wandb.init(config=params, name=params.name, group=params.group, project=params.project,
@@ -105,24 +109,27 @@ class Stepper():
                 mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
-            if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
-                self.integrator = Integrator(params, surface_ff_std=self.valid_dataset.surface_std.detach().to(self.device),
-                                               surface_delta_std=self.valid_dataset.surface_delta_std.detach().to(self.device),
-                                               upper_air_ff_std=self.valid_dataset.upper_air_std.detach().to(self.device),
-                                               upper_air_delta_std=self.valid_dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
-            else:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask, 
-                                               mask_fill = self.valid_dataset.mask_fill).to(self.device)
+            
+            self.model_vae = PanguModel_Plasim_VAE(self.params, land_mask = land_mask, mask_fill = self.params.mask_fill).to(self.device)
+            self.model_det = PanguModel_Plasim(self.params, land_mask = land_mask, 
+                                               mask_fill = self.params.mask_fill).to(self.device)
+
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
 
-        self.iters = 0
-        self.startEpoch = 0
         #if params.resuming:
-        self.restore_checkpoint(params.checkpoint_path)
-        self.epoch = self.startEpoch
+        self.model_det = self.restore_checkpoint(params.checkpoint_path_det, self.model_det)
+        self.model_vae = self.restore_checkpoint(params.checkpoint_path_vae, self.model_vae)    
+        self.model_diff = ConditionalDiffusionModel(
+                            T=1000,
+                            VAEEncoder=self.model_vae, 
+                            DETEncoder = self.model_det,
+                            params = self.params# Use default simple encoder
+                         ).to(self. device)
+        self.model_diff= self.restore_checkpoint(params.checkpoint_path_diff, self.model_diff) 
+
+  
 
 
     def predict(self):
@@ -130,29 +137,23 @@ class Stepper():
             logging.info("Starting Model Inference Loop...")
         valid_time, valid_logs = self.validate_one_epoch()
         
+        
+
 
     def validate_one_epoch(self):
-        self.model.eval()
+        self.model_diff.eval()
         total_start = time.time()
 
-    
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
                 for ens_id in list(range(30)):
-                    if self.params.predict_delta:
-                        if self.params.has_diagnostic:
-                            val_input_surface, val_input_upper_air, _, _, _, _, _,\
-                                val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                        else:
-                            val_input_surface, val_input_upper_air, _, _, _, _,\
-                                val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+     
+                    if self.params.has_diagnostic:
+                        val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     else:
-                        if self.params.has_diagnostic:
-                            val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
-                                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                        else:
-                            val_input_surface, val_input_upper_air, _, _, _, times = map(
-                                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                        val_input_surface, val_input_upper_air, _, _, _, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     
                     start_times = []
                     for i in range(times.shape[0]):  # Iterate over all samples in the batch
@@ -169,7 +170,7 @@ class Stepper():
                                                     dtype = np.float32)
                     if self.params.has_diagnostic:
                         val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                        self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                        self.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
                                                         dtype = np.float32)
                     
                     val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
@@ -178,28 +179,16 @@ class Stepper():
 
                     for time_step in range(self.params['inference_steps']):
                         if self.params.has_diagnostic:
-                            val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
-                                                                                                self.constant_boundary_data, 
-                                                                                                val_varying_boundary_data[:,time_step],
-                                                                                                val_input_upper_air)
-                            # if time_step == 0 and ens_id == 0  and self.world_rank == 0:
-                            #     logging.info(f'Before transform ------------------------')
-                            #     logging.info(f'Validation output diagnostic shape: {val_out_diagnostic.shape}')
-                            #     logging.info(f'Validation output maximum value: {val_out_diagnostic[:,0,:,:].max()}')
-                            #     logging.info(f'Validation output minimum value: {val_out_diagnostic[:,0,:,:].min()}')
-                            #     dia_max = val_out_diagnostic[:,0,:,:].max()
-                            #     dia_min = val_out_diagnostic[:,0,:,:].min()
+                            
+                            val_out_surface, val_out_upper_air, val_out_diagnostic = self.model_diff.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data, 
+                                                                    varying_boundary=val_varying_boundary_data[:,time_step], 
+                                                                    upper_air_in=val_input_upper_air, device=self.device)
+                            # val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
+                            #                                                                     self.constant_boundary_data, 
+                            #                                                                     val_varying_boundary_data[:,time_step],
+                            #                                                                     val_input_upper_air)
                             val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
-                            # if time_step == 0 and ens_id == 0 and self.world_rank == 0:
-                            #     logging.info(f'After transform ------------------------')
-                            #     val_output_max_test = dia_max * 0.00547 + 0.002398
-                            #     val_out_min_test =  dia_min * 0.00547 + 0.002398
-            
-                            #     logging.info(f'Validation output diagnostic shape: {val_output_diagnostic[:, time_step + 1][:,0,:,:].shape}')
-                            #     logging.info(f'Validation output maximum value: {val_output_diagnostic[:, time_step + 1][:,0,:,:].max()}')
-                            #     logging.info(f'Validation output minimum value: {val_output_diagnostic[:, time_step + 1][:,0,:,:].min()}')
-                            #     logging.info(f'Test max: {val_output_max_test}, Test min: {val_out_min_test}')
-                                
+  
 
                         else:
                             val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
@@ -208,18 +197,17 @@ class Stepper():
                             val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
                         else:
                             val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
-                        
-            
+                    
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
                         
                         
                     
     
-                    # if self.params.has_diagnostic:
-                    #     self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
-                    # else:
-                    #     self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+                    if self.params.has_diagnostic:
+                        self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
+                    else:
+                        self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
         
                 
         total_time = time.time() - total_start
@@ -231,41 +219,25 @@ class Stepper():
 
 
 
-
-    def save_checkpoint(self, checkpoint_path, model=None):
-        """ We intentionally require a checkpoint_dir to be passed
-            in order to allow Ray Tune to use this function """
-
-        if not model:
-            model = self.model
-
-        torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
-
-
-    def restore_checkpoint(self, checkpoint_path):
+    def restore_checkpoint(self, checkpoint_path, model):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         model_state_dict = checkpoint['model_state']
-
         # Remove 'module.' prefix if it exists
         new_state_dict = OrderedDict()
         for k, v in model_state_dict.items():
             name = k[7:] if k.startswith('module.') else k
             new_state_dict[name] = v
         # Filter out unnecessary keys
-        model_dict = self.model.state_dict()
+        model_dict = model.state_dict()
         new_state_dict = {k: v for k, v in new_state_dict.items() if k in model_dict}
         # Update model_dict
         model_dict.update(new_state_dict)
         # Load the filtered state dict
-        self.model.load_state_dict(model_dict, strict=False)
-        self.iters = checkpoint['iters']
-        self.startEpoch = checkpoint['epoch']
-        print('START EPOCH:', self.startEpoch)
-        # Restore optimizer state if resuming
-        if self.params.resuming and 'optimizer_state_dict' in checkpoint:
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print("Checkpoint restored successfully")
+        model.load_state_dict(model_dict, strict=False)
+        iters = checkpoint['iters']
+        startEpoch = checkpoint['epoch']
+        print("Checkpoint loaded: iters = %d, epoch = %d" % (iters, startEpoch))
+        return model
 
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
@@ -399,7 +371,7 @@ if __name__ == '__main__':
         params['batch_size'] = params['batch_size']//4'''
     
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        #dist.init_process_group(backend='nccl', init_method='env://')
         if 'derecho' in str(Path(__file__)):
             local_rank = args.local_rank
         else:

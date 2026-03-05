@@ -3,218 +3,261 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+import numpy as np
+from einops import rearrange
+from functools import partial
+from tqdm.auto import tqdm
+from torch import nn, einsum, optim
+from torch.nn import functional as F
+import time
 
+Tensor = torch.Tensor
 
-# ---------------------------------------------------------------------------
-# Diffusion UNet building blocks
-# ---------------------------------------------------------------------------
+def Downsample_1deg(dim_in, dim_out, scale=2):
+    class DownsampleModule(nn.Module):
+        def __init__(self):
+            super(DownsampleModule, self).__init__()
+            self.maxpool = nn.MaxPool2d(scale)
+            self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=1)
 
-class SinusoidalPosEmb(nn.Module):
-    """Sinusoidal timestep embeddings."""
-    def __init__(self, dim: int):
+        def forward(self, x):
+            x = self.maxpool(x) 
+            x = self.conv(x)
+            return x
+
+    return DownsampleModule()
+
+def Upsample_1deg(dim_in, dim_out, scale=2):
+    class UpsampleModule(nn.Module):
+        def __init__(self):
+            super(UpsampleModule, self).__init__()
+            self.upsample = nn.Upsample(scale_factor=scale, mode='bilinear', align_corners=True)
+            self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=3, padding=1)
+
+        def forward(self, x):
+            x = self.upsample(x)
+            x = self.conv(x)
+            return x  
+
+    return UpsampleModule()
+
+class SinusoidalPositionEmbeddings(nn.Module):
+    def __init__(self, dim):
         super().__init__()
         self.dim = dim
 
-    def forward(self, t: torch.Tensor) -> torch.Tensor:
-        device = t.device
-        half = self.dim // 2
-        freqs = torch.exp(
-            -math.log(10000) * torch.arange(half, device=device) / (half - 1)
-        )
-        args = t[:, None].float() * freqs[None]
-        return torch.cat([args.sin(), args.cos()], dim=-1)
+    def forward(self, time):
+        device = time.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = time[:, None] * embeddings[None, :] * 1000.
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        return embeddings
 
 
-class TimestepCondResBlock(nn.Module):
-    """
-    Residual block that accepts:
-      - timestep embedding (t_emb)
-      - conditioning vector (cond) — e.g. VAE latent z
-    """
-    def __init__(self, in_ch: int, out_ch: int, t_emb_dim: int, cond_dim: int):
+class Block(nn.Module):
+    def __init__(self, dim_in, dim_out, groups=8):
         super().__init__()
-        self.norm1 = nn.GroupNorm(8, in_ch)
-        self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
-        self.norm2 = nn.GroupNorm(8, out_ch)
-        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
+        self.proj = nn.Conv2d(dim_in, dim_out, 3, padding=1)
+        self.norm = nn.GroupNorm(groups, dim_out)
+        self.act = nn.SiLU()
 
-        self.t_proj = nn.Sequential(nn.SiLU(), nn.Linear(t_emb_dim, out_ch * 2))
-        self.c_proj = nn.Sequential(nn.SiLU(), nn.Linear(cond_dim, out_ch * 2))
+    def forward(self, x, scale_shift=None):
+        x = self.proj(x)
+        x = self.norm(x)
 
-        self.skip = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
-
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        t_emb: torch.Tensor,
-        cond: torch.Tensor,
-    ) -> torch.Tensor:
-        
-        h = self.conv1(F.silu(self.norm1(x)))
-        
-        # Timestep conditioning via scale-shift (AdaGN style)
-        t_scale, t_shift = self.t_proj(t_emb).unsqueeze(-1).unsqueeze(-1).chunk(2, dim=1)
-        h = self.norm2(h) * (1 + t_scale) + t_shift
-
-        # VAE conditioning via scale-shift
-        c_scale, c_shift = self.c_proj(cond).unsqueeze(-1).unsqueeze(-1).chunk(2, dim=1)
-        h = h * (1 + c_scale) + c_shift
-
-        h = F.silu(h)
-        h = self.conv2(h)
-        return h + self.skip(x)
-
-
-class SelfAttention2d(nn.Module):
-    """Lightweight spatial self-attention for UNet bottleneck."""
-    def __init__(self, channels: int, num_heads: int = 4):
+        if scale_shift!=None:
+            scale, shift = scale_shift
+            x = x * (scale + 1) + shift
+        x = self.act(x)
+        return x
+    
+class UpProject(nn.Module):
+    def __init__(self, dim=10, time_emb_dim=None):
         super().__init__()
-        self.norm = nn.GroupNorm(8, channels)
-        self.attn = nn.MultiheadAttention(channels, num_heads, batch_first=True)
+        self.conv = nn.Conv2d(dim, dim, kernel_size=3, padding=1)
+        self.mlp_t = (nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim * 2))
+                        if time_emb_dim is not None else None)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, C, H, W = x.shape
-        h = self.norm(x).view(B, C, H * W).permute(0, 2, 1)  # (B, HW, C)
-        h, _ = self.attn(h, h, h)
-        return x + h.permute(0, 2, 1).view(B, C, H, W)
-
-
-# ---------------------------------------------------------------------------
-# Conditional UNet
-# ---------------------------------------------------------------------------
-
-class ConditionalUNet(nn.Module):
-    """
-    UNet denoiser conditioned on:
-      1. Diffusion timestep t
-      2. VAE latent z (encoder output)
-
-    x_t -> predicted noise (or x_0, depending on parameterisation).
-    """
-    def __init__(
-        self,
-        in_channels: int = 10,
-        base_channels: int = 128,
-        channel_mults: tuple = (1, 2, 4, 8),
-        latent_dim: int = 256,
-        t_emb_dim: int = 512,
-    ):
+    def forward(self, x, time_emb=None):  # x: (N,10,1035,384)
+        x = F.interpolate(x, size=(4050, 480), mode="bilinear", align_corners=False)
+        x = self.conv(x)
+        if self.mlp_t is not None and time_emb is not None:
+            time_emb = self.mlp_t(time_emb)
+            time_emb = rearrange(time_emb, "b c -> b c 1 1")
+            scale, shift = time_emb.chunk(2, dim=1)
+            x = x * (scale + 1) + shift
+        return x
+    
+    
+class ResnetBlock(nn.Module):
+    def __init__(self, dim_in, dim_out, *, time_emb_dim=None, groups=8, dropout=0.1):
         super().__init__()
+        self.out_channels = dim_out    
+        self.mlp_t = (nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))
+                        if time_emb_dim is not None else None)
+        self.block1 = Block(dim_in, dim_out, groups=groups)
+        self.dropout = nn.Dropout(dropout)
+        self.block2 = Block(dim_out, dim_out, groups=groups)
+        self.res_conv = nn.Conv2d(dim_in, dim_out, 1) if dim_in != dim_out else nn.Identity()
 
-        # --- timestep embedding ---
-        self.t_emb = nn.Sequential(
-            SinusoidalPosEmb(base_channels),
-            nn.Linear(base_channels, t_emb_dim),
+    def forward(self, x, time_emb=None):
+        scale_shift_t = None
+        if self.mlp_t is not None and time_emb is not None:
+            time_emb = self.mlp_t(time_emb)
+            time_emb = rearrange(time_emb, "b c -> b c 1 1")
+            scale_shift_t = time_emb.chunk(2, dim=1)
+        h = self.block1(x, scale_shift=scale_shift_t)
+        h = self.dropout(h)
+        h = self.block2(h)
+        return h + self.res_conv(x)
+
+# class ResnetBlock(nn.Module):
+#     def __init__(self, dim_in, dim_out, *, time_emb_dim=None, groups=8):
+#         super().__init__()
+#         self.out_channels = dim_out    
+#         self.mlp_t = (nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, dim_out * 2))
+#                         if time_emb_dim is not None else None)
+#         self.block1 = Block(dim_in, dim_out, groups=groups)
+#         self.block2 = Block(dim_out, dim_out, groups=groups)
+#         self.res_conv = nn.Conv2d(dim_in, dim_out, 1) if dim_in != dim_out else nn.Identity()
+
+#     def forward(self, x, time_emb=None):
+#         scale_shift_t = None
+#         if self.mlp_t is not None and time_emb is not None:
+#             time_emb = self.mlp_t(time_emb)
+#             time_emb = rearrange(time_emb, "b c -> b c 1 1")
+#             scale_shift_t = time_emb.chunk(2, dim=1)
+#         h = self.block1(x, scale_shift=scale_shift_t)
+#         h = self.block2(h)
+#         return h + self.res_conv(x)
+    
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn):
+        super().__init__()
+        self.fn = fn
+        self.norm = nn.GroupNorm(1, dim)
+
+    def forward(self, x):
+        x = self.norm(x)
+        return self.fn(x)
+    
+
+class ConUNet_1degV2(nn.Module):
+    def __init__(self, dim_in, dim_cond, dim_out, c, c_mults=(1, 2, 4, 8), 
+                    resnet_block_groups=4, scale = [2,2,2], 
+                    is_guide=False, drop_prob=0.1, dropout=0.1):
+        super().__init__()
+    
+        self.init_conv = nn.Conv2d((dim_in+dim_cond), c, 1, padding=0)
+        dims = [c*x for x in c_mults]
+        self.is_guide = is_guide
+        self.drop_prob = drop_prob
+        in_out = list(zip(dims[:-1], dims[1:]))
+        block_klass = partial(ResnetBlock, groups=resnet_block_groups, dropout=dropout)
+        # block_klass = partial(ResnetBlock, groups=resnet_block_groups)
+        # time embeddings
+        time_dim = c * 4
+        self.time_mlp = nn.Sequential(
+            SinusoidalPositionEmbeddings(c),
+            nn.Linear(c, time_dim),
             nn.SiLU(),
-            nn.Linear(t_emb_dim, t_emb_dim),
+            nn.Linear(time_dim, time_dim),
         )
+        # layers
+        self.downs = nn.ModuleList([])
+        self.ups = nn.ModuleList([])
+        num_resolutions = len(in_out)
 
-        channels = [base_channels * m for m in channel_mults]
+        for ind, (d_in, d_out) in enumerate(in_out):
+            is_last = ind >= (num_resolutions - 1)
 
-        # --- encoder (down path) ---
-        self.init_conv = nn.Conv2d(in_channels, channels[0], 3, padding=1)
-        self.down_blocks = nn.ModuleList()
-        self.down_samples = nn.ModuleList()
-        in_ch = channels[0]
-        skip_channels = [in_ch]
-
-        for out_ch in channels[:-1]:
-            self.down_blocks.append(
-                nn.ModuleList([
-                    TimestepCondResBlock(in_ch, out_ch, t_emb_dim, latent_dim),
-                    TimestepCondResBlock(out_ch, out_ch, t_emb_dim, latent_dim),
-                ])
-            )
-            self.down_samples.append(nn.Conv2d(out_ch, out_ch, 4, stride=2, padding=1))
-            skip_channels.append(out_ch)
-            in_ch = out_ch
-
-        # --- bottleneck ---
-        mid_ch = channels[-1]
-        self.mid_res1 = TimestepCondResBlock(in_ch, mid_ch, t_emb_dim, latent_dim)
-        self.mid_attn = SelfAttention2d(mid_ch)
-        self.mid_res2 = TimestepCondResBlock(mid_ch, mid_ch, t_emb_dim, latent_dim)
-
-        # --- decoder (up path) ---
-        self.up_blocks = nn.ModuleList()
-        self.up_samples = nn.ModuleList()
-        in_ch = mid_ch
-
-        for out_ch in reversed(channels[:-1]):
-            skip_ch = skip_channels.pop()
-            self.up_samples.append(
-                nn.Sequential(
-                    nn.Upsample(scale_factor=2, mode="nearest"),
-                    nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            self.downs.append(
+                nn.ModuleList(
+                    [
+                        block_klass(d_in, d_in, time_emb_dim=time_dim),
+                        block_klass(d_in, d_in, time_emb_dim=time_dim),
+                        Downsample_1deg(d_in, d_out, scale = scale[ind])
+                        if not is_last
+                        else nn.Conv2d(d_in, d_out, 3, padding=1),
+                    ]
                 )
             )
-            self.up_blocks.append(
-                nn.ModuleList([
-                    TimestepCondResBlock(out_ch + skip_ch, out_ch, t_emb_dim, latent_dim),
-                    TimestepCondResBlock(out_ch, out_ch, t_emb_dim, latent_dim),
-                ])
+
+        mid_dim = dims[-1]
+        self.mid_block1 = block_klass(mid_dim, mid_dim, time_emb_dim=time_dim)
+        self.mid_block2 = block_klass(mid_dim, mid_dim, time_emb_dim=time_dim)
+
+        for ind, (d_in, d_out) in enumerate(reversed(in_out)):
+            is_last = ind == (len(in_out) - 1)
+
+            self.ups.append(
+                nn.ModuleList(
+                    [
+                        block_klass(d_out + d_in, d_out, time_emb_dim=time_dim),
+                        block_klass(d_out + d_in, d_out, time_emb_dim=time_dim),
+                        Upsample_1deg(d_out, d_in, scale = scale[-ind-1])
+                        if not is_last
+                        else nn.Conv2d(d_out, d_in, 3, padding=1),
+                    ]
+                )
             )
-            in_ch = out_ch
 
-        # --- output ---
-        self.out_norm = nn.GroupNorm(8, in_ch)
-        self.out_conv = nn.Conv2d(in_ch, in_channels, 1)
-        
-        cond_in_dim = 10
-        self.cond_norm = nn.LayerNorm(cond_in_dim)
-        self.cond_linear1 = nn.Linear(cond_in_dim, base_channels)
-        self.cond_linear2 = nn.Linear(base_channels, latent_dim)
-        
-        
-    def cond_proj(self, cond: torch.Tensor) -> torch.Tensor:
-        cond = self.cond_norm(cond)
-        cond = self.cond_linear1(cond)
-        cond = F.silu(cond)
-        cond = self.cond_linear2(cond)
-        return cond
+        self.final_res_block = block_klass(c * 2, c, time_emb_dim=time_dim)
+        self.final_conv = nn.Conv2d(c, dim_out, 1)
+        self.project_c = UpProject(dim=10, time_emb_dim=time_dim)
 
-    def forward(
-        self,
-        x_t: torch.Tensor,
-        t: torch.Tensor,
-        cond: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Args:
-            x_t:   noisy image   (B, C, H, W)
-            t:     timestep      (B,) integers in [0, T)
-            cond:  VAE latent z  (B, latent_dim)
-        Returns:
-            predicted noise      (B, C, H, W)
-        """
-        t_emb = self.t_emb(t)                  # (B, t_emb_dim)
-        h = self.init_conv(x_t)
-        skips = [h]
-        
-        cond = self.cond_proj(cond)            # (B, latent_dim)
-       
 
-        for (rb1, rb2), ds in zip(self.down_blocks, self.down_samples):
-            h = rb1(h, t_emb, cond)
-            h = rb2(h, t_emb, cond)
-            skips.append(h)
-            h = ds(h)
+    def forward(self, x, cond, time):
+        if self.is_guide and self.training: # whether use the classifier-free guidance
+            context_mask = torch.bernoulli(torch.full(cond.shape, self.drop_prob, device=cond.device))
+            context_mask = 1 - context_mask  
+            cond = cond * context_mask
+        t = self.time_mlp(time)
+        # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
+        cond = self.project_c(cond, t)
+        # print(" cond shape after projection ", cond.shape) # 2, 10, 1035, 384
+        x = torch.cat((x, cond), dim=1)
+        x = self.init_conv(x)
+        r = x.clone()
+        h = []
+        for block1, block2, downsample in self.downs:
+            x = block1(x, t)
+            h.append(x)
+            x = block2(x, t)
+            h.append(x)
+            scale_factor = 2  
+            H, W = x.shape[2], x.shape[3]
+            pad_h = (scale_factor - H % scale_factor) % scale_factor
+            pad_w = (scale_factor - W % scale_factor) % scale_factor
+            if pad_h or pad_w:
+                x = F.pad(x, (0, pad_w, 0, pad_h))  
+            x = downsample(x)
 
-        h = self.mid_res1(h, t_emb, cond)
-        h = self.mid_attn(h)
-        h = self.mid_res2(h, t_emb, cond)
+        x = self.mid_block1(x, t)
+        x = self.mid_block2(x, t)
 
-        for (rb1, rb2), us in zip(self.up_blocks, self.up_samples):
-            h = us(h)
-            skip = skips.pop()
-            if h.shape[-2:] != skip.shape[-2:]:
-                h = F.interpolate(h, size=skip.shape[-2:], mode="nearest")
-            h = torch.cat([h, skip], dim=1)
-            h = rb1(h, t_emb, cond)
-            h = rb2(h, t_emb, cond)
+        for block1, block2, upsample in self.ups:
+            skip = h.pop()
+            if x.shape[2] != skip.shape[2] or x.shape[3] != skip.shape[3]:
+                x = x[:, :, :skip.shape[2], :skip.shape[3]]
+            x = torch.cat((x, skip), dim=1)
+            x = block1(x, t)
+            skip = h.pop()
+            if x.shape[2] != skip.shape[2] or x.shape[3] != skip.shape[3]:
+                x = x[:, :, :skip.shape[2], :skip.shape[3]]
+            x = torch.cat((x, skip), dim=1)
+            x = block2(x, t)
+            x = upsample(x)
 
-        return self.out_conv(F.silu(self.out_norm(h)))
+        x = torch.cat((x, r), dim=1)
+        x = self.final_res_block(x, t)
+        x = self.final_conv(x)
+        x = x[:, :, :r.shape[2], :r.shape[3]]
+        return x
+
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +306,7 @@ class DDPMScheduler:
     @torch.no_grad()
     def p_sample(
         self,
-        model: ConditionalUNet,
+        model: ConUNet_1degV2,
         x_t: torch.Tensor,
         t: torch.Tensor,
         cond: torch.Tensor,
@@ -272,31 +315,45 @@ class DDPMScheduler:
         betas_t = self.betas[t].view(-1, 1, 1, 1)
         sqrt_1mab = self.sqrt_one_minus_alphas_bar[t].view(-1, 1, 1, 1)
         sqrt_recip_a = (1.0 / self.alphas[t].sqrt()).view(-1, 1, 1, 1)
-
-        eps_pred = model(x_t, t, cond)
+        eps_pred = model(x_t, cond, t)
         # Mean of p(x_{t-1} | x_t)
         mean = sqrt_recip_a * (x_t - betas_t / sqrt_1mab * eps_pred)
 
         if (t == 0).all():
             return mean
         noise = torch.randn_like(x_t)
+
         return mean + betas_t.sqrt() * noise
 
     @torch.no_grad()
     def sample(
         self,
-        model: ConditionalUNet,
+        model: ConUNet_1degV2,
         shape: tuple,
         cond: torch.Tensor,
         device: torch.device,
+        T: int = 1000,
+        show_progress: bool = True,
     ) -> torch.Tensor:
         """Full reverse diffusion loop."""
         x = torch.randn(shape, device=device)
-        for step in reversed(range(self.T)):
+        disable_bar = not show_progress
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            disable_bar = disable_bar or torch.distributed.get_rank() != 0
+
+        steps = tqdm(
+            reversed(range(T)),
+            total=T,
+            desc="Diffusion sampling",
+            leave=False,
+            disable=disable_bar,
+        )
+        ts = time.time()
+        for step in steps:
             t = torch.full((shape[0],), step, dtype=torch.long, device=device)
             x = self.p_sample(model, x, t, cond)
+        print(f"Sampling took {time.time() - ts:.2f} seconds")
         return x
-
 
 # ---------------------------------------------------------------------------
 # Combined model + training step
@@ -309,16 +366,10 @@ class ConditionalDiffusionModel(nn.Module):
     """
     def __init__(
         self,
-        img_channels: int = 3,
-        vae_base_ch: int = 64,
-        vae_ch_mults: tuple = (1, 2, 4),
-        latent_dim: int = 256,
-        unet_base_ch: int = 128,
-        unet_ch_mults: tuple = (1, 2, 4, 8),
-        t_emb_dim: int = 512,
         T: int = 1000,
         kl_weight: float = 1e-4,
         VAEEncoder = None,
+        DETEncoder = None,
         params = None,
         
     ):
@@ -330,7 +381,13 @@ class ConditionalDiffusionModel(nn.Module):
                             // self.params.updown_scale_factor + VAEEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor,
                             (VAEEncoder.patchembed2d.output_size[1] - VAEEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor) \
                             // self.params.updown_scale_factor + VAEEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor)
-        
+
+
+        self.downscale_resolution_det = (DETEncoder.patchembed3d.output_size[0]+1+1*self.params.upper_air_boundary,
+                            (DETEncoder.patchembed2d.output_size[0] - DETEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor) \
+                            // self.params.updown_scale_factor + DETEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor,
+                            (DETEncoder.patchembed2d.output_size[1] - DETEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor) \
+                            // self.params.updown_scale_factor + DETEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor)        
         self.num_surface_vars = len(params.surface_variables)
         self.num_diagnostic_vars = len(params.diagnostic_variables)
         self.num_land_vars = len(params.land_variables)
@@ -339,14 +396,25 @@ class ConditionalDiffusionModel(nn.Module):
                                                   torch.arange(self.num_surface_vars + self.num_diagnostic_vars, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
     
         self.encoder = VAEEncoder
+        self.model_det = DETEncoder
+        self.freeze_encoder()
+        self.unet = ConUNet_1degV2(dim_in =10, dim_cond=10, dim_out=10, c = 64, 
+                                   c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4)
         
+        self.scheduler_diff = DDPMScheduler(T=T)
+
+    def freeze_encoder(self):
+        self.encoder.eval()
+        self.model_det.eval()
         for param in self.encoder.parameters():
             param.requires_grad = False
+        for param in self.model_det.parameters():
+            param.requires_grad = False
 
-
-            
-        self.unet = ConditionalUNet(img_channels, unet_base_ch, unet_ch_mults, latent_dim, t_emb_dim)
-        self.scheduler_diff = DDPMScheduler(T=T)
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.encoder.eval()
+        return self
 
     # def encode(self, x: torch.Tensor):
     #     """Encode image to VAE latent."""
@@ -368,40 +436,54 @@ class ConditionalDiffusionModel(nn.Module):
         B = surface_in.size(0)
         device = surface_in.device
         self.scheduler_diff.to(device)
+        ###############encoder 2 start ########################
         # 1. Encode condition
         #######VAE ENCODER START ########
         surface_vae = self.encoder.patchembed2d(surface_in)
         upper_air_vae = self.encoder.patchembed3d(upper_air_in)
-        x_vae = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
-        
-        B_vae, C_vae, Pl_vae, _, _ = x_vae.shape
-        print("x_vae shape before reshape ", x_vae.shape)  #torch.Size([2, 192, 10, 45, 90])
-        
-        x_vae = x_vae.reshape(B_vae, C_vae, -1).transpose(1, 2)
+        x = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
+
+        B_vae, C_vae, Pl_vae, _, _ = x.shape
+
+        x_vae = x.reshape(B_vae, C_vae, -1).transpose(1, 2)
         x_vae = self.encoder.layer1(x_vae)
         # skip = x_vae
         x_vae = self.encoder.downsample(x_vae) #8, 10350, 384
         x_vae = self.encoder.layer2(x_vae)
         x_vae = self.encoder.layer3(x_vae)
-        print("x_vae shape before VAE in model fusion", x_vae.shape) # 1, 10350, 384
-
         x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
-
-        # ###########VAE Enocer 1#################
         mu = self.encoder.layer_mu(x_vae) # 
-
         sigma = self.encoder.layer_sigma(x_vae) 
-       
         norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
     
         z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
-        print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
+        # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
+        
+        ###############encoder 2 start (deterministic) ########################
+        surface_det = self.model_det.patchembed2d(surface_in)
+        upper_air_det = self.model_det.patchembed3d(upper_air_in)
+        x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
+   
+        B_det, C_det, Pl_det, _, _ = x.shape
+        # print("x_det shape before reshape ", x.shape)  #torch.Size([2, 192, 10, 45, 90])
 
+        x_det = x.reshape(B_det, C_det, -1).transpose(1, 2)
+        x = self.model_det.downsample(x_det)
+        x = self.model_det.layer2(x, train)
+        x = self.model_det.layer3(x, train)
+        x = x.reshape(B, Pl_det, -1,240*self.params.updown_scale_factor)
+        # print("dtermisntic model shape", x.shape) #2, 10, 4050, 480
+        
+        
+        ###############encoder 2 end (determisntic) ########################
+         
+        
         # Further downscale z and use it as compact conditioning information.
-        z_cond_map = F.avg_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
-        print("z_cond_map shape ", z_cond_map.shape) # 2, 10, 518, 192
-        z_cond = z_cond_map.mean(dim=(2, 3)) ## 2, 10
-        print("z_cond shape before projection ", z_cond.shape) # 2, 10
+        #z_cond = F.avg_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
+        
+        #print("z_cond_map shape ", z_cond.shape) # 2, 10, 518, 192
+        # z_cond = z_cond_map.mean(dim=(2, 3)) ## 2, 10
+        #print("z_cond shape before projection ", z_cond.shape) # 2, 10
 
 
     
@@ -411,13 +493,21 @@ class ConditionalDiffusionModel(nn.Module):
         t = torch.randint(0, self.scheduler_diff.T, (B,), device=device)
 
         # 3. Forward diffusion
-        z_t, noise = self.scheduler_diff.q_sample(z, t)
+        x_t, noise = self.scheduler_diff.q_sample(x, t)
+        
 
         # 4. Predict noise
-        noise_pred = self.unet(z_t, t, z_cond)
+        noise_pred = self.unet(x_t, z, t)
+        
 
         # 5. Losses
         loss = F.mse_loss(noise_pred, noise)
+        loss = torch.sqrt(loss)
+        
+        if loss.item() > 2:
+            print("Warning: High diffusion loss detected: ", loss.item())
+            print("noise_pred shape ", noise_pred[0]) # 2, 10, 1035, 384
+            print("noise shape ", noise[0]) # 2, 10, 1035, 384
 
 
         return loss 
@@ -425,28 +515,114 @@ class ConditionalDiffusionModel(nn.Module):
     @torch.no_grad()
     def generate(
         self,
-        condition_image: torch.Tensor,
+        model_diff = None,
+        z: torch.Tensor= None,
         num_samples: int = 1,
-        use_mean: bool = True,
+        sample_shape: tuple | None = None,
+        device =  None, 
     ) -> torch.Tensor:
         """
         Generate images conditioned on a source image's VAE encoding.
 
         Args:
-            condition_image: (1, C, H, W) or (B, C, H, W) reference image
+            z: conditional information
             num_samples:     how many samples to draw per condition
             use_mean:        if True use mu (deterministic), else sample z
         """
-        device = condition_image.device
-        mu, logvar = self.encoder(condition_image)
-        z = mu if use_mean else VAEEncoder.reparameterize(mu, logvar)
         # Repeat condition for num_samples
         z = z.repeat_interleave(num_samples, dim=0)
 
-        C, H, W = condition_image.shape[1:]
-        shape = (z.size(0), C, H, W)
-        return self.scheduler.sample(self.unet, shape, z, device)
+        if sample_shape is None:
+            C, H, W = z.shape[1:]
+        else:
+            if len(sample_shape) == 4:
+                C, H, W = sample_shape[1:]
+            elif len(sample_shape) == 3:
+                C, H, W = sample_shape
+            else:
+                raise ValueError(f"sample_shape must have 3 or 4 dims, got {sample_shape}")
 
+        shape = (z.size(0), C, H, W)
+        return self.scheduler_diff.sample(model_diff, shape, z, device)
+
+
+    def prediction(self, surface_in, constant_boundary, 
+                   varying_boundary, upper_air_in, 
+                   num_samples = 1, device = None):
+        
+        if len(constant_boundary.size()) == 3:
+            constant_boundary = constant_boundary.unsqueeze(0)
+        surface_in = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+
+        B = surface_in.size(0)
+        device = surface_in.device
+        self.scheduler_diff.to(device)
+        ###############encoder 2 start ########################
+        # 1. Encode condition
+        #######VAE ENCODER START ########
+        surface_vae = self.encoder.patchembed2d(surface_in)
+        upper_air_vae = self.encoder.patchembed3d(upper_air_in)
+        x = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
+
+        B_vae, C_vae, Pl_vae, _, _ = x.shape
+
+        x_vae = x.reshape(B_vae, C_vae, -1).transpose(1, 2)
+        x_vae = self.encoder.layer1(x_vae)
+        # skip = x_vae
+        x_vae = self.encoder.downsample(x_vae) #8, 10350, 384
+        x_vae = self.encoder.layer2(x_vae)
+        x_vae = self.encoder.layer3(x_vae)
+        x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
+        mu = self.encoder.layer_mu(x_vae) # 
+        sigma = self.encoder.layer_sigma(x_vae) 
+        norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
+    
+        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
+        # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
+        
+        ###############encoder 2 start (deterministic) ########################
+        surface_det = self.model_det.patchembed2d(surface_in)
+        upper_air_det = self.model_det.patchembed3d(upper_air_in)
+        x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
+   
+        B_det, C_det, Pl_det, Lat, Lon = x.shape
+        #print("x_det shape before reshape ", x.shape)  #torch.Size([2, 192, 10, 45, 90])
+
+        x_det = x.reshape(B_det, C_det, -1).transpose(1, 2)
+        skip = x_det
+        x = self.model_det.downsample(x_det)
+        x = self.model_det.layer2(x, train=False)
+        x = self.model_det.layer3(x, train=False)
+        x = x.reshape(B, Pl_det, -1,240*self.params.updown_scale_factor)
+        target_latent_shape = x.shape
+
+        x = self.generate(
+            model_diff=self.unet,
+            z=z,
+            num_samples=num_samples,
+            sample_shape=target_latent_shape,
+            device=device,
+        )
+        
+        x = x.reshape(B, -1,240*self.params.updown_scale_factor)
+        
+        ######## DETERMISNTIC DECODER START ######
+        x = self.model_det.upsample(x)
+        x = self.model_det.layer4(x, train=False)
+        output = torch.concat([x, skip], dim=-1)
+        output = output.transpose(1, 2).reshape(B, -1, Pl_det, Lat, Lon)
+        output_surface = output[:, :, -1, :, :]
+        output_upper_air = output[:, :, :-1, :, :]
+        output_2D = self.model_det.patchrecovery2d(output_surface)
+        output_surface = output_2D[:, self.surface_prognostic_idxs]
+        
+        output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
+        output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
+            output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
+        return output_surface, output_upper_air, output_diagnostic
+        #######start decoder #########
+        
+        
 
 # ---------------------------------------------------------------------------
 # Quick smoke test

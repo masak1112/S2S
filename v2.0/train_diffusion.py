@@ -34,14 +34,14 @@ print(f"World rank: {world_rank}")
 class DiffusionTrainer(Trainer):
     def __init__(self, params,world_rank):
         super().__init__(params,world_rank)
-        self.model = self.get_model()
+        self.model_vae, self.model_det = self.get_model()
         
         self.mask_bool, self.land_mask = self.get_land_mask_bool()
         #load model weights 
-        self.restore_checkpoint(self.params.checkpoint_path, optimizer=False)
+        self.restore_checkpoint(self.params.checkpoint_path_vae,self.params.checkpoint_path_det, optimizer=False)
                 
         # freeze all params in self.model
-        for p in self.model.parameters():
+        for p in self.model_vae.parameters():
             p.requires_grad = False
 
         self.diff_model= self.get_diffusion_model()
@@ -124,13 +124,13 @@ class DiffusionTrainer(Trainer):
                     self.iters += 1
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)          
                     with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        self.optimizer.zero_grad(set)
                         loss = self.diff_model.training_step(surface_in = input_surface, constant_boundary = self.constant_boundary_data, 
                                                         varying_boundary = varying_boundary_data, upper_air_in = input_upper_air)   
 
-                    self.scaler.scale(loss).backward()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                    
+                        loss.backward()
+                        self.optimizer.step()
+                        
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
 
@@ -140,18 +140,17 @@ class DiffusionTrainer(Trainer):
                     if self.world_rank == 0 and self.wandb_enabled:
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
-                    
-                    logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
+                    if i % 100 == 0:
+                        logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
+                        self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
         # pbar.close()
         # pbar.update(1)
         logs ={"train_loss": loss, "epoch": self.epoch}
         return logs
         
-        
-    def train_diff(self, epochs = 20):
+    def train_diff(self, epochs = 50):
         for epoch in range(epochs):
             logs = self.training_one_epoch_diffusion()
-            self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
             if self.wandb_enabled:
                 wandb.log(logs, step=self.epoch)
             # if epoch % self.params.validation_interval == 0:
@@ -192,12 +191,9 @@ class DiffusionTrainer(Trainer):
         
     def get_diffusion_model(self):
         self.diff_model =  ConditionalDiffusionModel(
-                            img_channels=10,
-                            latent_dim=128,
-                            unet_base_ch=64,
-                            unet_ch_mults=(1, 2, 4),
-                            T=100,
-                            VAEEncoder=self.model.module, 
+                            T=1000,
+                            VAEEncoder=self.model_vae.module, 
+                            DETEncoder = self.model_det.module,
                             params = self.params# Use default simple encoder
                          ).to(device)
                 # Count parameters
@@ -206,14 +202,6 @@ class DiffusionTrainer(Trainer):
         return self.diff_model
 
 
-
-    def generation_diff(self):
-        self.diff_model.eval()
-        with torch.no_grad():
-            # Example condition (random noise)
-            cond = torch.randn(1, 3, 64, 64, device=device)
-            samples = self.diff_model.generate(cond, num_samples=2)
-            print(f"Generated shape: {samples.shape}")   # (2, 3, 64, 64)
             
             
             
