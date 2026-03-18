@@ -206,7 +206,7 @@ class Trainer():
     def setup_model(self):
         # Set up model
         
-        self.model = self.get_model()
+        self.model_vae, self.model_det = self.get_model()
         self.optimizer = self.get_optimizer()
         self.scaler = GradScaler()
         if params.resuming:
@@ -1270,7 +1270,7 @@ class Trainer():
             shutil.rmtree(self.diagnostics_dir)
             print(f"Deleted GIF directory: {self.diagnostics_dir}")
     
-    def save_checkpoint(self, checkpoint_path, model=None):
+    def save_checkpoint(self, checkpoint_path, model=None, iteration=None):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
 
@@ -1278,7 +1278,7 @@ class Trainer():
             model = self.model
         logging.info("model is saved at epoch {}".format(self.epoch))
         torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
+                    'optimizer_state_dict': self.optimizer.state_dict()}, os.path.join(checkpoint_path, "_", str(iteration)))
 
 
     def restore_checkpoint(self, checkpoint_path_vae=None, checkpoint_path_det=None, optimizer=True):

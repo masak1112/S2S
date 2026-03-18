@@ -319,9 +319,17 @@ class DDPMScheduler:
         # Mean of p(x_{t-1} | x_t)
         mean = sqrt_recip_a * (x_t - betas_t / sqrt_1mab * eps_pred)
 
+        torch.isnan(eps_pred).any() and print(f"NaN detected in eps_pred at t={t.tolist()}")
+        torch.isnan(x_t).any() and print(f"NaN detected in x_t at t={t.tolist()}")
+        if torch.isnan(mean).any():
+            print(f"NaN detected in p_sample mean at t={t.tolist()}")
+            print(f"NaN ")
+            raise ValueError(f"NaN detected in p_sample mean at t={t.tolist()}")
+
         if (t == 0).all():
             return mean
         noise = torch.randn_like(x_t)
+        
 
         return mean + betas_t.sqrt() * noise
 
@@ -398,7 +406,8 @@ class ConditionalDiffusionModel(nn.Module):
         self.encoder = VAEEncoder
         self.model_det = DETEncoder
         self.freeze_encoder()
-        self.unet = ConUNet_1degV2(dim_in =10, dim_cond=10, dim_out=10, c = 64, 
+        self._encoder_param_checksums = self._snapshot_encoder_params()
+        self.unet = ConUNet_1degV2(dim_in =10, dim_cond=10, dim_out=10, c = 64,
                                    c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4)
         
         self.scheduler_diff = DDPMScheduler(T=T)
@@ -411,106 +420,119 @@ class ConditionalDiffusionModel(nn.Module):
         for param in self.model_det.parameters():
             param.requires_grad = False
 
+    def _snapshot_encoder_params(self) -> dict:
+        """Store a lightweight checksum of all encoder parameters for drift detection."""
+        checksums = {}
+        for name, param in self.encoder.named_parameters():
+            checksums[f"encoder.{name}"] = param.data.sum().item()
+        for name, param in self.model_det.named_parameters():
+            checksums[f"model_det.{name}"] = param.data.sum().item()
+        return checksums
+
+    def assert_encoder_frozen(self):
+        """Assert encoder/det parameters are frozen (requires_grad=False) and unchanged."""
+        for name, param in self.encoder.named_parameters():
+            assert not param.requires_grad, \
+                f"encoder param '{name}' has requires_grad=True — encoder is not frozen!"
+            key = f"encoder.{name}"
+            current = param.data.sum().item()
+            expected = self._encoder_param_checksums[key]
+            assert abs(current - expected) < 1e-6, \
+                f"encoder param '{name}' changed during training: {expected:.6f} -> {current:.6f}"
+        for name, param in self.model_det.named_parameters():
+            assert not param.requires_grad, \
+                f"model_det param '{name}' has requires_grad=True — encoder is not frozen!"
+            key = f"model_det.{name}"
+            current = param.data.sum().item()
+            expected = self._encoder_param_checksums[key]
+            assert abs(current - expected) < 1e-6, \
+                f"model_det param '{name}' changed during training: {expected:.6f} -> {current:.6f}"
+
     def train(self, mode: bool = True):
         super().train(mode)
         self.encoder.eval()
         return self
 
-    # def encode(self, x: torch.Tensor):
-    #     """Encode image to VAE latent."""
-    #     mu, logvar = self.encoder(x)
-    #     z = self.encoder.reparameterize(mu, logvar)
-    #     return z, mu, logvar
-
-
-    def training_step(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False) -> dict[str, torch.Tensor]:
-        """
-        Single training step.
-        Returns dict with 'loss', 'diffusion_loss', 'kl_loss'.
-        """
-        
-        if len(constant_boundary.size()) == 3:
+    def _prepare_surface(
+        self,
+        surface_in: torch.Tensor,
+        constant_boundary: torch.Tensor,
+        varying_boundary: torch.Tensor,
+    ) -> torch.Tensor:
+        """Concatenate surface fields with boundary conditions."""
+        if constant_boundary.dim() == 3:
             constant_boundary = constant_boundary.unsqueeze(0)
-        surface_in = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+        return torch.cat([surface_in, constant_boundary, varying_boundary], dim=1)
 
-        B = surface_in.size(0)
-        device = surface_in.device
-        self.scheduler_diff.to(device)
-        ###############encoder 2 start ########################
-        # 1. Encode condition
-        #######VAE ENCODER START ########
-        surface_vae = self.encoder.patchembed2d(surface_in)
-        upper_air_vae = self.encoder.patchembed3d(upper_air_in)
-        x = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
+    def _encode_vae(
+        self, surface: torch.Tensor, upper_air: torch.Tensor
+    ) -> torch.Tensor:
+        """Stochastic VAE encoding -> latent z."""
+        surface_emb = self.encoder.patchembed2d(surface)
+        upper_air_emb = self.encoder.patchembed3d(upper_air)
+        x = torch.cat([upper_air_emb, surface_emb.unsqueeze(2)], dim=2)
 
-        B_vae, C_vae, Pl_vae, _, _ = x.shape
+        B, C, Pl, _, _ = x.shape
+        x = x.reshape(B, C, -1).transpose(1, 2)
+        x = self.encoder.layer1(x)
+        x = self.encoder.downsample(x)
+        x = self.encoder.layer2(x)
+        x = self.encoder.layer3(x)
+        x = x.reshape(B, *self.downscale_resolution, -1).permute(0, 4, 1, 2, 3)
+        mu = self.encoder.layer_mu(x)
+        sigma = self.encoder.layer_sigma(x)
+        z = self.encoder.reparameterize(mu, sigma)  # (B, C', Pl, H', W')
+        z = z.permute(0, 2, 3, 4, 1).reshape(B, Pl, -1, 192 * self.params.updown_scale_factor)
+        return z
 
-        x_vae = x.reshape(B_vae, C_vae, -1).transpose(1, 2)
-        x_vae = self.encoder.layer1(x_vae)
-        # skip = x_vae
-        x_vae = self.encoder.downsample(x_vae) #8, 10350, 384
-        x_vae = self.encoder.layer2(x_vae)
-        x_vae = self.encoder.layer3(x_vae)
-        x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
-        mu = self.encoder.layer_mu(x_vae) # 
-        sigma = self.encoder.layer_sigma(x_vae) 
-        norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
-    
-        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
-        # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
-        
-        ###############encoder 2 start (deterministic) ########################
-        surface_det = self.model_det.patchembed2d(surface_in)
-        upper_air_det = self.model_det.patchembed3d(upper_air_in)
-        x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
-   
-        B_det, C_det, Pl_det, _, _ = x.shape
-        # print("x_det shape before reshape ", x.shape)  #torch.Size([2, 192, 10, 45, 90])
-
-        x_det = x.reshape(B_det, C_det, -1).transpose(1, 2)
-        x = self.model_det.downsample(x_det)
+    def _encode_det(
+        self, surface: torch.Tensor, upper_air: torch.Tensor, train: bool
+    ) -> torch.Tensor:
+        """Deterministic encoding -> conditioned feature map."""
+        surface_emb = self.model_det.patchembed2d(surface)
+        upper_air_emb = self.model_det.patchembed3d(upper_air)
+        x = torch.cat([upper_air_emb, surface_emb.unsqueeze(2)], dim=2)
+        B, C, Pl, _, _ = x.shape
+        x = x.reshape(B, C, -1).transpose(1, 2)
+        x = self.model_det.downsample(x)
         x = self.model_det.layer2(x, train)
         x = self.model_det.layer3(x, train)
-        x = x.reshape(B, Pl_det, -1,240*self.params.updown_scale_factor)
-        # print("dtermisntic model shape", x.shape) #2, 10, 4050, 480
-        
-        
-        ###############encoder 2 end (determisntic) ########################
-         
-        
-        # Further downscale z and use it as compact conditioning information.
-        #z_cond = F.avg_pool2d(z, kernel_size=2, stride=2, ceil_mode=True)
-        
-        #print("z_cond_map shape ", z_cond.shape) # 2, 10, 518, 192
-        # z_cond = z_cond_map.mean(dim=(2, 3)) ## 2, 10
-        #print("z_cond shape before projection ", z_cond.shape) # 2, 10
+        x = x.reshape(B, Pl, -1, 240 * self.params.updown_scale_factor)
+        return x
 
+    def training_step(
+        self,
+        surface_in: torch.Tensor,
+        constant_boundary: torch.Tensor,
+        varying_boundary: torch.Tensor,
+        upper_air_in: torch.Tensor,
+        train: bool = True,
+    ) -> torch.Tensor:
+        """Single diffusion training step. Returns RMSE loss."""
+        self.assert_encoder_frozen()
+        surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
 
-    
-        #######VAE ENCODER END######## 
+        B = surface.size(0)
+        device = surface.device
+        self.scheduler_diff.to(device)
 
-        # 2. Sample random timestep
+        # Encode stochastic condition (VAE) and deterministic features
+        z = self._encode_vae(surface, upper_air_in)
+        x = self._encode_det(surface, upper_air_in, train)
+
+        # Sample timestep and forward-diffuse x
         t = torch.randint(0, self.scheduler_diff.T, (B,), device=device)
-
-        # 3. Forward diffusion
         x_t, noise = self.scheduler_diff.q_sample(x, t)
-        
 
-        # 4. Predict noise
+        # Predict and score noise
         noise_pred = self.unet(x_t, z, t)
-        
-
-        # 5. Losses
         loss = F.mse_loss(noise_pred, noise)
-        loss = torch.sqrt(loss)
-        
+
         if loss.item() > 2:
-            print("Warning: High diffusion loss detected: ", loss.item())
-            print("noise_pred shape ", noise_pred[0]) # 2, 10, 1035, 384
-            print("noise shape ", noise[0]) # 2, 10, 1035, 384
-
-
-        return loss 
+            print(f"Warning: High diffusion loss detected: {loss.item():.4f}")
+            print("noise_pred[0]:", noise_pred[0])
+            print("noise[0]:", noise[0])
+        return loss
 
     @torch.no_grad()
     def generate(
@@ -595,7 +617,12 @@ class ConditionalDiffusionModel(nn.Module):
         x = self.model_det.layer3(x, train=False)
         x = x.reshape(B, Pl_det, -1,240*self.params.updown_scale_factor)
         target_latent_shape = x.shape
-
+        
+        if torch.isnan(x).any():
+            print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
+        else:
+            print("[NaN check] x before diffusion : no NaN")     
+            
         x = self.generate(
             model_diff=self.unet,
             z=z,
@@ -604,9 +631,13 @@ class ConditionalDiffusionModel(nn.Module):
             device=device,
         )
         
+        if torch.isnan(x).any():
+            print(f"[NaN check] x has NaN: {torch.isnan(x).sum().item()} NaNs")
+        else:
+            print("[NaN check] x : no NaN")        
         x = x.reshape(B, -1,240*self.params.updown_scale_factor)
         
-        ######## DETERMISNTIC DECODER START ######
+        ######## DETERMINISTIC DECODER START ######
         x = self.model_det.upsample(x)
         x = self.model_det.layer4(x, train=False)
         output = torch.concat([x, skip], dim=-1)
@@ -615,10 +646,17 @@ class ConditionalDiffusionModel(nn.Module):
         output_upper_air = output[:, :, :-1, :, :]
         output_2D = self.model_det.patchrecovery2d(output_surface)
         output_surface = output_2D[:, self.surface_prognostic_idxs]
-        
+        if torch.isnan(output_surface).any():
+            print(f"[NaN check] output_surface (after patchrecovery2d) has NaN: {torch.isnan(output_surface).sum().item()} NaNs")
+        else:
+            print("[NaN check] output_surface (after patchrecovery2d): no NaN")
+
         output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
             output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
+        
+        
+        
         return output_surface, output_upper_air, output_diagnostic
         #######start decoder #########
         

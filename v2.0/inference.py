@@ -118,20 +118,71 @@ class Stepper(Trainer):
         else:
             raise Exception("not implemented")
 
-        #if params.resuming:
-        self.model_det = self.restore_checkpoint(params.checkpoint_path_det, self.model_det)
-        self.model_vae = self.restore_checkpoint(params.checkpoint_path_vae, self.model_vae)    
-        self.model_diff = ConditionalDiffusionModel(
+ 
+        self.diff_model = ConditionalDiffusionModel(
                             T=1000,
                             VAEEncoder=self.model_vae, 
                             DETEncoder = self.model_det,
                             params = self.params# Use default simple encoder
                          ).to(self. device)
-        self.model_diff= self.restore_checkpoint(params.checkpoint_path_diff, self.model_diff) 
+        self.model_diff = self.diff_model
+  
+        self.restore_diff_checkpoint(params.checkpoint_path_diff)
+        self._reload_vae_checkpoint(
+            checkpoint_path_vae=params.checkpoint_path_vae,
+            checkpoint_path_det=params.checkpoint_path_det,
+        )
+
+    def restore_diff_checkpoint(self, checkpoint_path_diff):
+        """ We intentionally require a checkpoint_dir to be passed
+            in order to allow Ray Tune to use this function """
+        checkpoint = torch.load(checkpoint_path_diff, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        raw_state = checkpoint['model_state']
+        # Strip DDP 'module.' prefix if present
+        if any(k.startswith('module.') for k in raw_state):
+            raw_state = OrderedDict((k[7:], v) for k, v in raw_state.items())
+        # Exclude frozen encoder/model_det weights — those must come from their
+        # own checkpoints (loaded via restore_checkpoint), not from the diff ckpt.
+        # Loading them from here would silently corrupt the canonical encoder weights.
+        unet_state = {k: v for k, v in raw_state.items()
+                      if not k.startswith('encoder.') and not k.startswith('model_det.')}
+        missing, unexpected = self.diff_model.load_state_dict(unet_state, strict=False)
+        encoder_keys_skipped = [k for k in raw_state if k.startswith('encoder.') or k.startswith('model_det.')]
+        if encoder_keys_skipped:
+            print(f"restore_diff_checkpoint: skipped {len(encoder_keys_skipped)} frozen encoder keys")
+        encoder_unexpected = [k for k in unexpected if not k.startswith('encoder.') and not k.startswith('model_det.')]
+        if encoder_unexpected:
+            print(f"restore_diff_checkpoint: unexpected non-encoder keys: {encoder_unexpected}")
+        # Refresh snapshot so assert_encoder_frozen() baselines from the correct weights
+        #self.diff_model._encoder_param_checksums = self.diff_model._snapshot_encoder_params()
+        self.iters = checkpoint['iters']
+        self.startEpoch = checkpoint['epoch']
+        self.epoch = checkpoint['epoch']
 
   
+    def _reload_vae_checkpoint(self, checkpoint_path_vae=None, checkpoint_path_det=None):
+        """Explicitly load VAE and deterministic checkpoint weights into
+        diff_model.encoder and diff_model.model_det respectively.
+        Guarantees both always use checkpoint_path_vae / checkpoint_path_det,
+        regardless of what any diff checkpoint may contain."""
+        checkpoint_path_vae = checkpoint_path_vae or self.params.checkpoint_path_vae
+        checkpoint_path_det = checkpoint_path_det or self.params.checkpoint_path_det
 
+        def _load(path, module):
+            ckpt = torch.load(path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+            raw_state = ckpt['model_state']
+            if any(k.startswith('module.') for k in raw_state):
+                raw_state = OrderedDict((k[7:], v) for k, v in raw_state.items())
+            module.load_state_dict(raw_state, strict=True)
 
+        _load(checkpoint_path_vae, self.diff_model.encoder)
+        print("Loaded VAE weights from checkpoint_path_vae into diff_model.encoder")
+        _load(checkpoint_path_det, self.diff_model.model_det)
+        print("Loaded det weights from checkpoint_path_det into diff_model.model_det")
+        self.model_vae = self.diff_model.encoder
+        self.model_det = self.diff_model.model_det
+        self.diff_model.freeze_encoder()
+        
     def predict(self):
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
@@ -146,7 +197,7 @@ class Stepper(Trainer):
 
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
-                for ens_id in list(range(30)):
+                for ens_id in list(range(3)):
      
                     if self.params.has_diagnostic:
                         val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
@@ -180,13 +231,14 @@ class Stepper(Trainer):
                     for time_step in range(self.params['inference_steps']):
                         if self.params.has_diagnostic:
                             
-                            val_out_surface, val_out_upper_air, val_out_diagnostic = self.model_diff.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data, 
+                            val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data, 
                                                                     varying_boundary=val_varying_boundary_data[:,time_step], 
                                                                     upper_air_in=val_input_upper_air, device=self.device)
                             # val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
                             #                                                                     self.constant_boundary_data, 
                             #                                                                     val_varying_boundary_data[:,time_step],
                             #                                                                     val_input_upper_air)
+                            
                             val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
   
 
@@ -216,29 +268,6 @@ class Stepper(Trainer):
         #     wandb.log(logs, step=self.epoch)
         return total_time
     
-
-
-
-    def restore_checkpoint(self, checkpoint_path, model):
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
-        model_state_dict = checkpoint['model_state']
-        # Remove 'module.' prefix if it exists
-        new_state_dict = OrderedDict()
-        for k, v in model_state_dict.items():
-            name = k[7:] if k.startswith('module.') else k
-            new_state_dict[name] = v
-        # Filter out unnecessary keys
-        model_dict = model.state_dict()
-        new_state_dict = {k: v for k, v in new_state_dict.items() if k in model_dict}
-        # Update model_dict
-        model_dict.update(new_state_dict)
-        # Load the filtered state dict
-        model.load_state_dict(model_dict, strict=False)
-        iters = checkpoint['iters']
-        startEpoch = checkpoint['epoch']
-        print("Checkpoint loaded: iters = %d, epoch = %d" % (iters, startEpoch))
-        return model
-
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
         print("Saving predictions...")

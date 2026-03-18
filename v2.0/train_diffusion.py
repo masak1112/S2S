@@ -38,7 +38,7 @@ class DiffusionTrainer(Trainer):
         
         self.mask_bool, self.land_mask = self.get_land_mask_bool()
         #load model weights 
-        self.restore_checkpoint(self.params.checkpoint_path_vae,self.params.checkpoint_path_det, optimizer=False)
+        #self.restore_checkpoint(self.params.checkpoint_path_vae,self.params.checkpoint_path_det, optimizer=False)
                 
         # freeze all params in self.model
         for p in self.model_vae.parameters():
@@ -51,6 +51,10 @@ class DiffusionTrainer(Trainer):
             self.setup_scheduler(restart=False)
         else:
             self.setup_scheduler(restart=True)
+        # Explicitly ensure diff_model.encoder uses checkpoint_path_vae weights,
+        # overriding anything that restore_diff_checkpoint may have loaded.
+        self._reload_vae_checkpoint()
+        
         self.get_dataset()
         self.scaler = GradScaler()
         self.params = params
@@ -60,18 +64,48 @@ class DiffusionTrainer(Trainer):
             logging.warning("W&B logging is enabled in config, but wandb.init() is not active. Skipping wandb.log calls.")
         
  
+    def _reload_vae_checkpoint(self):
+        """Explicitly load VAE and deterministic checkpoint weights into
+        diff_model.encoder and diff_model.model_det respectively.
+        Guarantees both always use checkpoint_path_vae / checkpoint_path_det,
+        regardless of what any diff checkpoint may contain."""
+        def _load(path, module):
+            ckpt = torch.load(path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+            raw_state = ckpt['model_state']
+            if any(k.startswith('module.') for k in raw_state):
+                raw_state = OrderedDict((k[7:], v) for k, v in raw_state.items())
+            module.load_state_dict(raw_state, strict=True)
+
+        _load(self.params.checkpoint_path_vae, self.diff_model.encoder)
+        print("Loaded VAE weights from checkpoint_path_vae into diff_model.encoder")
+        _load(self.params.checkpoint_path_det, self.diff_model.model_det)
+        print("Loaded det weights from checkpoint_path_det into diff_model.model_det")
+        self.diff_model.freeze_encoder()
+        self.diff_model._encoder_param_checksums = self.diff_model._snapshot_encoder_params()
+
+
     def restore_diff_checkpoint(self, checkpoint_path_diff):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path_diff, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
-        try:
-            self.diff_model.load_state_dict(checkpoint['model_state'])
-        except:
-            new_state_dict = OrderedDict()
-            for key, val in checkpoint['model_state'].items():
-                name = key[7:]
-                new_state_dict[name] = val
-            self.diff_model.load_state_dict(new_state_dict)
+        raw_state = checkpoint['model_state']
+        # Strip DDP 'module.' prefix if present
+        if any(k.startswith('module.') for k in raw_state):
+            raw_state = OrderedDict((k[7:], v) for k, v in raw_state.items())
+        # Exclude frozen encoder/model_det weights — those must come from their
+        # own checkpoints (loaded via restore_checkpoint), not from the diff ckpt.
+        # Loading them from here would silently corrupt the canonical encoder weights.
+        unet_state = {k: v for k, v in raw_state.items()
+                      if not k.startswith('encoder.') and not k.startswith('model_det.')}
+        missing, unexpected = self.diff_model.load_state_dict(unet_state, strict=False)
+        encoder_keys_skipped = [k for k in raw_state if k.startswith('encoder.') or k.startswith('model_det.')]
+        if encoder_keys_skipped:
+            print(f"restore_diff_checkpoint: skipped {len(encoder_keys_skipped)} frozen encoder keys")
+        encoder_unexpected = [k for k in unexpected if not k.startswith('encoder.') and not k.startswith('model_det.')]
+        if encoder_unexpected:
+            print(f"restore_diff_checkpoint: unexpected non-encoder keys: {encoder_unexpected}")
+        # Refresh snapshot so assert_encoder_frozen() baselines from the correct weights
+        self.diff_model._encoder_param_checksums = self.diff_model._snapshot_encoder_params()
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         self.epoch = checkpoint['epoch']
@@ -124,11 +158,17 @@ class DiffusionTrainer(Trainer):
                     self.iters += 1
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)          
                     with torch.autocast(device_type='cuda', dtype=torch.float16):
-                        self.optimizer.zero_grad(set)
-                        loss = self.diff_model.training_step(surface_in = input_surface, constant_boundary = self.constant_boundary_data, 
-                                                        varying_boundary = varying_boundary_data, upper_air_in = input_upper_air)   
+                        self.optimizer.zero_grad()
+                        loss = self.diff_model.training_step(surface_in = input_surface, 
+                                                             constant_boundary = self.constant_boundary_data, 
+                                                             varying_boundary = varying_boundary_data, 
+                                                             upper_air_in = input_upper_air)   
 
+                        
                         loss.backward()
+                        
+                        # Gradient clipping for stability
+                        torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
                         self.optimizer.step()
                         
                     if self.params.scheduler == 'OneCycleLR':
@@ -140,9 +180,9 @@ class DiffusionTrainer(Trainer):
                     if self.world_rank == 0 and self.wandb_enabled:
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
-                    if i % 100 == 0:
+                    if i % 200 == 0:
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
-                        self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
+                        self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model, self.iter)
         # pbar.close()
         # pbar.update(1)
         logs ={"train_loss": loss, "epoch": self.epoch}
