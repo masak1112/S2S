@@ -1278,7 +1278,7 @@ class Trainer():
             model = self.model
         logging.info("model is saved at epoch {}".format(self.epoch))
         torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict()}, os.path.join(checkpoint_path, "_", str(iteration)))
+                    'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
     def restore_checkpoint(self, checkpoint_path_vae=None, checkpoint_path_det=None, optimizer=True):

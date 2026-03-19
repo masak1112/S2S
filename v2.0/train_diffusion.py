@@ -180,11 +180,13 @@ class DiffusionTrainer(Trainer):
                     if self.world_rank == 0 and self.wandb_enabled:
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
-                    if i % 200 == 0:
+                    if i % 2000 == 0:
+                        temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
+                        diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
-                        self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model, self.iter)
+                        self.save_checkpoint(diff_path, self.diff_model)
         # pbar.close()
-        # pbar.update(1)
+        # pbar.updac te(1)
         logs ={"train_loss": loss, "epoch": self.epoch}
         return logs
         
