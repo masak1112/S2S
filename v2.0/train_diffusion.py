@@ -165,6 +165,7 @@ class DiffusionTrainer(Trainer):
                                                              upper_air_in = input_upper_air)   
 
                         
+                        
                         loss.backward()
                         
                         # Gradient clipping for stability
@@ -176,8 +177,10 @@ class DiffusionTrainer(Trainer):
 
                     current_lr = self.optimizer.param_groups[0]["lr"]
                     diagnostic_logs = {"loss": loss, "lr": current_lr}
-                        
-                    if self.world_rank == 0 and self.wandb_enabled:
+                    
+                    print("self.wandb_enabled", self.wandb_enabled)
+                    if self.world_rank == 0 :
+                        print("wandb logging ")
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
                     if i % 2000 == 0:
@@ -194,7 +197,7 @@ class DiffusionTrainer(Trainer):
         for epoch in range(epochs):
             logs = self.training_one_epoch_diffusion()
             if self.wandb_enabled:
-                wandb.log(logs, step=self.epoch)
+                wandb.log(logs, epoch = self.epoch)
             # if epoch % self.params.validation_interval == 0:
             #     self.validation_diffusion()
 
