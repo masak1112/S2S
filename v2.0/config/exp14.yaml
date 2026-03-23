@@ -30,7 +30,7 @@ base_config: &BASE
   test_iterations: 10000000000
   checkpoint_path_vae: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_vae/ckpt.tar"
   checkpoint_path_det: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_determinstic/ckpt.tar"
-  checkpoint_path_diff: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt_100166.tar"
+  checkpoint_path_diff: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt_106168.tar"
   # checkpoint_path_vae: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_vae/ckpt.tar"
   # checkpoint_path_det: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_determinstic/ckpt.tar"
   # checkpoint_path_diff: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt.tar"

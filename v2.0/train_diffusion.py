@@ -197,7 +197,7 @@ class DiffusionTrainer(Trainer):
         for epoch in range(epochs):
             logs = self.training_one_epoch_diffusion()
             if self.wandb_enabled:
-                wandb.log(logs, epoch = self.epoch)
+                wandb.log(logs, step = self.epoch)
             # if epoch % self.params.validation_interval == 0:
             #     self.validation_diffusion()
 
