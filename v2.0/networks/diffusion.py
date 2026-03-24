@@ -11,6 +11,9 @@ from tqdm.auto import tqdm
 from torch import nn, einsum, optim
 from torch.nn import functional as F
 import time
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 Tensor = torch.Tensor
 
@@ -503,6 +506,53 @@ class ConditionalDiffusionModel(nn.Module):
         x = x.reshape(B, Pl, -1, 240 * self.params.updown_scale_factor)
         return x
 
+    def plot_noise_comparison(
+        self,
+        noise: torch.Tensor,
+        noise_pred: torch.Tensor,
+        t: torch.Tensor,
+        save_path: str = "noise_comparison.png",
+        n_channels: int = 4,
+    ) -> None:
+        """Plot real vs predicted noise for a single batch item.
+
+        Args:
+            noise:      real noise, shape (B, C, H, W)
+            noise_pred: predicted noise, same shape
+            t:          timestep tensor, shape (B,)
+            save_path:  where to save the figure
+            n_channels: how many channels (columns) to show
+        """
+        real = noise[0].detach().cpu().float()       # (C, H, W)
+        pred = noise_pred[0].detach().cpu().float()  # (C, H, W)
+        diff = real - pred
+
+        C = real.shape[0]
+        n_channels = min(n_channels, C)
+        fig, axes = plt.subplots(3, n_channels, figsize=(4 * n_channels, 9))
+        if n_channels == 1:
+            axes = axes[:, None]
+
+        row_labels = ["Real noise", "Predicted noise", "Difference"]
+        for col, ch in enumerate(range(n_channels)):
+            for row, (data, label) in enumerate(zip([real, pred, diff], row_labels)):
+                ax = axes[row, col]
+                im = ax.imshow(data[ch].numpy(), cmap="RdBu_r", origin="upper")
+                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                title = f"ch {ch}" if row > 0 else f"{label}  ch {ch}"
+                if col == 0:
+                    title = f"{label}\nch {ch}"
+                ax.set_title(title, fontsize=8)
+                ax.axis("off")
+
+        t_val = t[0].item()
+        mse = ((real - pred) ** 2).mean().item()
+        fig.suptitle(f"Noise comparison  t={t_val}  MSE={mse:.4f}", fontsize=10)
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=120, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[plot_noise_comparison] saved → {save_path}")
+
     def training_step(
         self,
         surface_in: torch.Tensor,
@@ -510,6 +560,9 @@ class ConditionalDiffusionModel(nn.Module):
         varying_boundary: torch.Tensor,
         upper_air_in: torch.Tensor,
         train: bool = True,
+        plot_freq: int = 0,
+        plot_path: str = "noise_comparison.png",
+        iter = 0
     ) -> torch.Tensor:
         """Single diffusion training step. Returns RMSE loss."""
         self.assert_encoder_frozen()
@@ -535,6 +588,10 @@ class ConditionalDiffusionModel(nn.Module):
             print(f"Warning: High diffusion loss detected: {loss.item():.4f}")
             print("noise_pred[0]:", noise_pred[0])
             print("noise[0]:", noise[0])
+
+        if plot_freq > 0 and iter % plot_freq == 0: 
+            self.plot_noise_comparison(noise, noise_pred, t, save_path=plot_path)
+
         return loss
 
     @torch.no_grad()
@@ -605,7 +662,7 @@ class ConditionalDiffusionModel(nn.Module):
         z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
         # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
         
-        ###############encoder 2 start (deterministic) ########################
+        ###############encoder 1 start (deterministic) ########################
         surface_det = self.model_det.patchembed2d(surface_in)
         upper_air_det = self.model_det.patchembed3d(upper_air_in)
         x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
@@ -614,6 +671,7 @@ class ConditionalDiffusionModel(nn.Module):
         #print("x_det shape before reshape ", x.shape)  #torch.Size([2, 192, 10, 45, 90])
 
         x_det = x.reshape(B_det, C_det, -1).transpose(1, 2)
+        x_det = self.model_det.layer1(x_det, train=False)
         skip = x_det
         x = self.model_det.downsample(x_det)
         x = self.model_det.layer2(x, train=False)
@@ -637,8 +695,9 @@ class ConditionalDiffusionModel(nn.Module):
         if torch.isnan(x).any():
             print(f"[NaN check] x has NaN: {torch.isnan(x).sum().item()} NaNs")
         else:
-            print("[NaN check] x : no NaN")        
-        x = x.reshape(B, -1,240*self.params.updown_scale_factor)
+            print("[NaN check] x : no NaN")
+        print("x shape after diffusion",x.shape)        
+        x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
         
         ######## DETERMINISTIC DECODER START ######
         x = self.model_det.upsample(x)
@@ -657,7 +716,6 @@ class ConditionalDiffusionModel(nn.Module):
         output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
             output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
-        
         
         
         return output_surface, output_upper_air, output_diagnostic

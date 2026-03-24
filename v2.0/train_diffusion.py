@@ -162,7 +162,7 @@ class DiffusionTrainer(Trainer):
                         loss = self.diff_model.training_step(surface_in = input_surface, 
                                                              constant_boundary = self.constant_boundary_data, 
                                                              varying_boundary = varying_boundary_data, 
-                                                             upper_air_in = input_upper_air)   
+                                                             upper_air_in = input_upper_air, plot_freq = 200, iter = self.iters)   
 
                         
                         

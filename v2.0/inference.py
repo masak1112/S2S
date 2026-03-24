@@ -197,7 +197,7 @@ class Stepper(Trainer):
 
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
-                for ens_id in list(range(3)):
+                for ens_id in list(range(20)):
      
                     if self.params.has_diagnostic:
                         val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
