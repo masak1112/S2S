@@ -11,6 +11,7 @@ import logging
 import time
 import torch
 from networks.diffusion import ConditionalDiffusionModel
+from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 import tqdm
 from collections import OrderedDict
@@ -24,6 +25,7 @@ import argparse
 from utils.YParams import YParams
 import torch.distributed as dist
 from torch.amp import autocast, GradScaler
+fr
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -235,12 +237,20 @@ class DiffusionTrainer(Trainer):
         
         
     def get_diffusion_model(self):
-        self.diff_model =  ConditionalDiffusionModel(
-                            T=1000,
-                            VAEEncoder=self.model_vae.module, 
-                            DETEncoder = self.model_det.module,
-                            params = self.params# Use default simple encoder
-                         ).to(device)
+        if self.params.diffusion_model_type == "diffusion":
+            self.diff_model =  ConditionalDiffusionModel(
+                                T=1000,
+                                VAEEncoder=self.model_vae.module, 
+                                DETEncoder = self.model_det.module,
+                                params = self.params# Use default simple encoder
+                            ).to(device)
+        elif self.params.diffusion_model_type == "SI":
+            self.diff_model = StochasticInterpolant(
+                                T=1000,
+                                VAEEncoder=self.model_vae.module, 
+                                DETEncoder = self.model_det.module,
+                                params = self.params# Use default simple encoder
+                            ).to(device)
                 # Count parameters
         n_params = sum(p.numel() for p in self.diff_model.parameters())
         print(f"Total parameters: {n_params:,}")
