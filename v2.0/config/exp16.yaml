@@ -103,7 +103,7 @@ S2S: &S2S
   diagnostic_acc: False
   diagnostic_gif: False
   diagnostic_spectra: False
-  forecast_lead_times: [1, 2] # 3, 5, 10, 15,4
+  forecast_lead_times: [1, 2, 10, 15, 45] # 3, 5, 10, 15,4
   diagnostic_logs: True
   dropout_rate: 0
 
