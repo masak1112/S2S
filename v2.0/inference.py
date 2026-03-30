@@ -1,6 +1,7 @@
 from networks.pangu import PanguModel_Plasim
 from networks.pangu_vae import PanguModel_Plasim_VAE
 from networks.diffusion import ConditionalDiffusionModel
+from networks.stochastic_interpolant import StochasticInterpolant
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
@@ -67,7 +68,7 @@ class Stepper(Trainer):
             self.params['land_variables'] = []
         if hasattr(self.params, 'ocean_variables'):
             if len(self.params.ocean_variables) > 0:
-                self.has_land = True
+                self.has_ocean = True
         else:
             self.params['ocean_variables'] = []
         if hasattr(self.params, 'mask_output'):
@@ -118,15 +119,19 @@ class Stepper(Trainer):
         else:
             raise Exception("not implemented")
 
- 
-        self.diff_model = ConditionalDiffusionModel(
-                            T=1000,
-                            VAEEncoder=self.model_vae, 
-                            DETEncoder = self.model_det,
-                            params = self.params# Use default simple encoder
-                         ).to(self. device)
+        if params.diffusion_model_type == "SI":
+            self.diff_model = StochasticInterpolant(VAEEncoder=self.model_vae, 
+                                DETEncoder = self.model_det,
+                                params = self.params).to(self.device)
+        else:
+            self.diff_model = ConditionalDiffusionModel(
+                                T=1000,
+                                VAEEncoder=self.model_vae, 
+                                DETEncoder = self.model_det,
+                                params = self.params# Use default simple encoder
+                            ).to(self. device)
         self.model_diff = self.diff_model
-  
+
         self.restore_diff_checkpoint(params.checkpoint_path_diff)
         self._reload_vae_checkpoint(
             checkpoint_path_vae=params.checkpoint_path_vae,
@@ -279,8 +284,7 @@ class Stepper(Trainer):
         inference_results_dir = self.params['experiment_dir']
         savedir = os.path.join(inference_results_dir, 'predictions')
         
-        if not os.path.isdir(savedir):
-            os.makedirs(savedir)
+        os.makedirs(savedir, exist_ok=True)
             
         pred_config = os.path.join(self.params['experiment_dir'], os.path.basename(params['config_filepath']))
         if not os.path.exists(pred_config):

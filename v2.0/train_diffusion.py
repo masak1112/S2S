@@ -25,7 +25,7 @@ import argparse
 from utils.YParams import YParams
 import torch.distributed as dist
 from torch.amp import autocast, GradScaler
-fr
+
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -36,8 +36,8 @@ print(f"World rank: {world_rank}")
 class DiffusionTrainer(Trainer):
     def __init__(self, params,world_rank):
         super().__init__(params,world_rank)
+       
         self.model_vae, self.model_det = self.get_model()
-        
         self.mask_bool, self.land_mask = self.get_land_mask_bool()
         #load model weights 
         #self.restore_checkpoint(self.params.checkpoint_path_vae,self.params.checkpoint_path_det, optimizer=False)
@@ -159,20 +159,23 @@ class DiffusionTrainer(Trainer):
                 
                     self.iters += 1
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)          
+                    self.optimizer.zero_grad()
                     with torch.autocast(device_type='cuda', dtype=torch.float16):
-                        self.optimizer.zero_grad()
                         loss = self.diff_model.training_step(surface_in = input_surface, 
                                                              constant_boundary = self.constant_boundary_data, 
                                                              varying_boundary = varying_boundary_data, 
                                                              upper_air_in = input_upper_air, plot_freq = 200, iter = self.iters)   
-
-                        
-                        
-                        loss.backward()
-                        
-                        # Gradient clipping for stability
-                        torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
-                        self.optimizer.step()
+                    
+                
+                    self.scaler.scale(loss).backward()
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
+                    scale_before = self.scaler.get_scale()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    scale_after = self.scaler.get_scale()
+                    if scale_after < scale_before:
+                        print("overflow happened")
                         
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()

@@ -15,293 +15,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from networks.diffusion import ConditionalDiffusionModel
+from networks.diffusion import ConUNet_1degV2
 
 
 
-def make_It(path='linear', gamma = None, gamma_dot = None, gg_dot = None):
-    """gamma function must be specified if using the trigonometric interpolant"""
-
-    if path == 'linear':
-        
-        
-        a      = lambda t: (1-t)
-        adot   = lambda t: -1.0
-        b      = lambda t: t
-        bdot   = lambda t: 1.0
-        It   = lambda t, x0, x1: a(t)*x0 + b(t)*x1
-        dtIt = lambda t, x0, x1: adot(t)*x0 + bdot(t)*x1
-        
-    elif path == 'trig':
-        if gamma == None:
-            raise TypeError("Gamma function must be provided for trigonometric interpolant!")
-        a    = lambda t: torch.sqrt(1 - gamma(t)**2)*torch.cos(0.5*math.pi*t)
-        b    = lambda t: torch.sqrt(1 - gamma(t)**2)*torch.sin(0.5*math.pi*t)
-        adot = lambda t: -gg_dot(t)/torch.sqrt(1 - gamma(t)**2)*torch.cos(0.5*math.pi*t) \
-                                - 0.5*math.pi*torch.sqrt(1 - gamma(t)**2)*torch.sin(0.5*math.pi*t)
-        bdot = lambda t: -gg_dot(t)/torch.sqrt(1 - gamma(t)**2)*torch.sin(0.5*math.pi*t) \
-                                + 0.5*math.pi*torch.sqrt(1 - gamma(t)**2)*torch.cos(0.5*math.pi*t)
-
-        It   = lambda t, x0, x1: a(t)*x0 + b(t)*x1
-        dtIt = lambda t, x0, x1: adot(t)*x0 + bdot(t)*x1
-        
-    elif path == 'encoding-decoding':
-
-        a    = lambda t: torch.where(t <= 0.5, torch.cos(math.pi*t)**2, torch.tensor(0.))
-        adot = lambda t: torch.where(t <= 0.5, -2*math.pi*torch.cos(math.pi*t)*torch.sin(math.pi*t), torch.tensor(0.))
-        b    = lambda t: torch.where(t > 0.5,  torch.cos(math.pi*t)**2, 0.)
-        bdot = lambda t: torch.where(t > 0.5,  -2*math.pi*torch.cos(math.pi*t)*torch.sin(math.pi*t), torch.tensor(0.))
-        It   = lambda t, x0, x1: a(t)*x0 + b(t)*x1
-        dtIt = lambda t, x0, x1: adot(t)*x0 + bdot(t)*x1
-    
-    elif path == 'one-sided-linear':
-
-        a      = lambda t: (1-t)
-        adot   = lambda t: -1.0
-        b      = lambda t: t
-        bdot   = lambda t: 1.0
-        
-        It   = lambda t, x0, x1: a(t)*x0 + b(t)*x1
-        dtIt = lambda t, x0, x1: adot(t)*x0 + bdot(t)*x1
-
-    elif path == 'one-sided-trig':
-
-        a      = lambda t: torch.cos(0.5*math.pi*t)
-        adot   = lambda t: -0.5*math.pi*torch.sin(0.5*math.pi*t)
-        b      = lambda t: torch.sin(0.5*math.pi*t)
-        bdot   = lambda t: 0.5*math.pi*torch.cos(0.5*math.pi*t)
-
-        
-        It   = lambda t, x0, x1: a(t)*x0 + b(t)*x1
-        dtIt = lambda t, x0, x1: adot(t)*x0 + bdot(t)*x1
-        
-    elif path == 'mirror':
-        if gamma == None:
-            raise TypeError("Gamma function must be provided for mirror interpolant!")
-        
-        a     = lambda t: gamma(t)
-        adot  = lambda t: gamma_dot(t)
-        b     = lambda t: torch.tensor(1.0)
-        bdot  = lambda t: torch.tensor(0.0)
-        
-        It    = lambda t, x0, x1: b(t)*x1 + a(t)*x0
-        dtIt  = lambda t, x0, x1: adot(t)*x0
-        
-    elif path == 'custom':
-        return None, None, None
-
-    else:
-        raise NotImplementedError("The interpolant you specified is not implemented.")
-
-    
-    return It, dtIt, (a, adot, b, bdot)
-
-
-def make_gamma(gamma_type = 'brownian', aval = None):
-    """
-    returns callable functions for gamma, gamma_dot,
-    and gamma(t)*gamma_dot(t) to avoid numerical divide by 0s,
-    e.g. if one is using the brownian (default) gamma.
-    """
-    if gamma_type == 'brownian':
-        gamma = lambda t: torch.sqrt(t*(1-t))
-        gamma_dot = lambda t: (1/(2*torch.sqrt(t*(1-t)))) * (1 -2*t)
-        gg_dot = lambda t: (1/2)*(1-2*t)
-        
-    elif gamma_type == 'a-brownian':
-        gamma = lambda t: torch.sqrt(a*t*(1-t))
-        gamma_dot = lambda t: (1/(2*torch.sqrt(a*t*(1-t)))) * a*(1 -2*t)
-        gg_dot = lambda t: (a/2)*(1-2*t)
-        
-    elif gamma_type == 'zero':
-        gamma = gamma_dot = gg_dot = lambda t: torch.zeros_like(t)
-
-    elif gamma_type == 'bsquared':
-        gamma = lambda t: t*(1-t)
-        gamma_dot = lambda t: 1 -2*t
-        gg_dot = lambda t: gamma(t)*gamma_dot(t)
-        
-    elif gamma_type == 'sinesquared':
-        gamma = lambda t: torch.sin(math.pi * t)**2
-        gamma_dot = lambda t: 2*math.pi*torch.sin(math.pi * t)*torch.cos(math.pi*t)
-        gg_dot = lambda t: gamma(t)*gamma_dot(t)
-        
-    elif gamma_type == 'sigmoid':
-        f = torch.tensor(10.0)
-        gamma = lambda t: torch.sigmoid(f*(t-(1/2)) + 1) - torch.sigmoid(f*(t-(1/2)) - 1) - torch.sigmoid((-f/2) + 1) + torch.sigmoid((-f/2) - 1)
-        gamma_dot = lambda t: (-f)*( 1 - torch.sigmoid(-1 + f*(t - (1/2))) )*torch.sigmoid(-1 + f*(t - (1/2)))  + f*(1 - torch.sigmoid(1 + f*(t - (1/2)))  )*torch.sigmoid(1 + f*(t - (1/2)))
-        gg_dot = lambda t: gamma(t)*gamma_dot(t)
-        
-    elif gamma_type == None:
-        gamma     = lambda t: torch.zeros(1) ### no gamma
-        gamma_dot = lambda t: torch.zeros(1) ### no gamma
-        gg_dot    = lambda t: torch.zeros(1) ### no gamma
-        
-    else:
-        raise NotImplementedError("The gamma you specified is not implemented.")
-        
-                
-    return gamma, gamma_dot, gg_dot
-
-
-#### here ye we define all the possible losses! For b, v, s, eta
-
-def loss_per_sample_b(
-    b: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the (variance-reduced) loss on an individual sample via antithetic sampling."""
-    xtp, xtm, z = interpolant.calc_antithetic_xts(t, x0, x1)
-    xtp, xtm, t = xtp.unsqueeze(0), xtm.unsqueeze(0), t.unsqueeze(0)
-    dtIt        = interpolant.dtIt(t, x0, x1)
-    gamma_dot   = interpolant.gamma_dot(t)
-    btp         = b(xtp, t)
-    btm         = b(xtm, t)
-    loss        = 0.5*torch.sum(btp**2) - torch.sum((dtIt + gamma_dot*z) * btp)
-    loss       += 0.5*torch.sum(btm**2) - torch.sum((dtIt - gamma_dot*z) * btm)
-    
-    return loss
-    
-def loss_per_sample_s(
-    s: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the (variance-reduced) loss on an individual sample via antithetic sampling."""
-    xtp, xtm, z = interpolant.calc_antithetic_xts(t, x0, x1)
-    xtp, xtm, t = xtp.unsqueeze(0), xtm.unsqueeze(0), t.unsqueeze(0)
-    stp         = s(xtp, t)
-    stm         = s(xtm, t)
-    loss      = 0.5*torch.sum(stp**2) + (1 / interpolant.gamma(t))*torch.sum(stp*z)
-    loss     += 0.5*torch.sum(stm**2) - (1 / interpolant.gamma(t))*torch.sum(stm*z)
-    
-    return loss
-
-
-def loss_per_sample_eta(
-    eta: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample via antithetic sampling."""
-    xt, z   = interpolant.calc_xt(t, x0, x1)
-    xt, t   = xt.unsqueeze(0), t.unsqueeze(0)
-    eta_val = eta(xt, t)
-    return 0.5*torch.sum(eta_val**2) + torch.sum(eta_val*z) 
-    
-
-def loss_per_sample_v(
-    v: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample via antithetic sampling."""
-    xt, z = interpolant.calc_xt(t, x0, x1)
-    xt, t = xt.unsqueeze(0), t.unsqueeze(0)
-    dtIt  = interpolant.dtIt(t, x0, x1)
-    v_val = v(xt, t)
-    
-    return 0.5*torch.sum(v_val**2) - torch.sum(dtIt * v_val)
-
-
-
-def loss_per_sample_one_sided_b(
-    b: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample."""
-    xt  = interpolant.calc_xt(t, x0, x1)
-    xt, t = xt.unsqueeze(0), t.unsqueeze(0)
-    dtIt        = interpolant.dtIt(t, x0, x1)
-    # gamma_dot   = interpolant.gamma_dot(t)
-    bt          = b(xt, t)
-    loss        = 0.5*torch.sum(bt**2) - torch.sum((dtIt) * bt)
-    
-    return loss
-
-def loss_per_sample_one_sided_v(
-    v: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample."""
-    xt    = interpolant.calc_xt(t, x0, x1)
-    xt, t = xt.unsqueeze(0), t.unsqueeze(0)
-    dtIt  = interpolant.dtIt(t, x0, x1)
-    vt = v(xt, t)
-    loss  = 0.5*torch.sum(vt**2) - torch.sum((dtIt) * vt)
-    
-    return loss
-
-
-
-def loss_per_sample_one_sided_s(
-    s: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample via antithetic samples for x_t = sqrt(1-t)z + sqrt(t) x1 where z=x0.
-    """
-    xtp, xtm, z = interpolant.calc_antithetic_xts(t, x0, x1)
-    xtp, xtm, t = xtp.unsqueeze(0), xtm.unsqueeze(0), t.unsqueeze(0)
-    stp         = s(xtp, t)
-    stm         = s(xtm, t)
-    alpha       = interpolant.a(t)
-    
-    loss      = 0.5*torch.sum(stp**2) + (1 / (alpha))*torch.sum(stp*x0)
-    loss     += 0.5*torch.sum(stm**2) - (1 / (alpha))*torch.sum(stm*x0)
-    
-    return loss
-
-
-def loss_per_sample_one_sided_eta(
-    eta: Velocity,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample via samples for x_t = alpha(t)z + beta(t) x1 where z=x0.
-    """
-    xt         = interpolant.calc_xt(t, x0, x1)
-    xt, t      = xt.unsqueeze(0), t.unsqueeze(0)
-    etat         = eta(xt, t)
-    loss      = 0.5*torch.sum(etat**2) + torch.sum(etat*x0)
-    
-    return loss
-
-
-def loss_per_sample_mirror(
-    s: Score,
-    x0: Sample,
-    x1: Sample,
-    t: torch.tensor,
-    interpolant: Interpolant
-) -> torch.tensor:
-    """Compute the loss on an individual sample via antithetic sampling."""
-    xt        = interpolant.calc_xt(t, x0, x1)
-    xt, t     = xt.unsqueeze(0), t.unsqueeze(0)
-    dtIt      = interpolant.dtIt(t, x0, x1)
-    st        = s(xt, t)
-
-    loss      = 0.5*torch.sum(st**2) + (1 / interpolant.gamma(t))*torch.sum(st*x0)
-    
-    return loss
 
 # class DriftScheduler(nn.Module):
 #     def __init__(self,
@@ -319,8 +36,10 @@ def loss_per_sample_mirror(
         
 
 class StochasticInterpolant(ConditionalDiffusionModel):
-    def __init__(self, path='linear', gamma_type='brownian', aval=None, **kwargs):
+    def __init__(self, path='linear', gamma_type='zero', **kwargs):
         super(StochasticInterpolant, self).__init__(**kwargs)
+        self.path = path
+        self.gamma_type = gamma_type
    
 
     def alpha(self, t):
@@ -358,7 +77,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
     
     def gamma_dot(self, t):
         if self.gamma_type == 'brownian':
-            return (1/(2*torch.sqrt(t*(1-t)))) * (1 -2*t)
+            denom = torch.clamp(torch.sqrt(t*(1-t)), min=1e-3)
+            return denom
         elif self.gamma_type == 'a-brownian':
             return (1/(2*torch.sqrt(self.aval*t*(1-t)))) * self.aval*(1 -2*t)
         elif self.gamma_type == 'zero':
@@ -375,9 +95,12 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         else:
             raise NotImplementedError("The gamma you specified is not implemented.")
         
-    def image_sq_norm(self, x):
-        return x.pow(2).sum(-1).sum(-1).sum(-1)
+    # def image_sq_norm(self, x):
+    #     return x.pow(2).sum(-1).sum(-1).sum(-1)
     
+    def image_sq_norm(self, x):
+        return x.pow(2).mean(-1).mean(-1).mean(-1)
+
     def I(self, x0, x1, t):
         return self.alpha(t) * x0 + self.beta(t) * x1
     
@@ -385,51 +108,29 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         return self.alpha_dot(t) * x0 + self.beta_dot(t) * x1       
         
     
-    def source_distribution(self, x: torch.Tensor, t: torch.Tensor | None = None, sigma: float | torch.Tensor | None = None):
-        """Return a (diagonal) Gaussian distribution centered at latent `x`.
+    def source_distribution(self, x: torch.Tensor):
+        """Return a standard Gaussian distribution N(0, I) with the same shape as `x`.
 
         Args:
-            x: latent tensor with leading batch dimension (B, ...).
-            t: optional time(s) used to derive a scale from `gamma(t)`; may be a
-               scalar tensor of shape (B,) or a single float.
-            sigma: optional fixed scale (float or tensor). If omitted and `t`
-               is provided, uses `abs(gamma(t)) + eps` as scale. If both are
-               omitted, a small default scale is used.
+            x: tensor used only to determine shape, device, and dtype (B, ...).
+            t: unused (kept for API compatibility).
+            sigma: unused (kept for API compatibility).
 
         Returns:
-            A torch.distributions.Independent Normal distribution whose mean
-            equals `x` and which has diagonal covariance given by `sigma**2`.
+            A torch.distributions.Independent Normal distribution with mean 0
+            and unit variance over all non-batch dimensions.
         """
-        eps = 1e-6
-        if sigma is None:
-            if t is None:
-                s = torch.tensor(1e-3, device=x.device, dtype=x.dtype)
-            else:
-                # allow scalar or per-batch t
-                t_t = t
-                if not torch.is_tensor(t_t):
-                    t_t = torch.tensor(t, device=x.device, dtype=x.dtype)
-                s = self.gamma(t_t).to(device=x.device, dtype=x.dtype)
-                # ensure positivity and avoid exact zero
-                s = s.abs() + eps
-        else:
-            s = sigma
-            if not torch.is_tensor(s):
-                s = torch.tensor(float(s), device=x.device, dtype=x.dtype)
-            else:
-                s = s.to(device=x.device, dtype=x.dtype)
-
-        # Broadcast per-sample scales to the shape of x
-        if s.dim() == 1 and x.dim() >= 2:
-            view = [s.shape[0]] + [1] * (x.dim() - 1)
-            s = s.view(*view)
-
-        normal = torch.distributions.Normal(loc=x, scale=s)
-        # treat all non-batch dims as event dims
+        normal = torch.distributions.Normal(
+            loc=torch.zeros_like(x),
+            scale=torch.ones_like(x),
+        )
         dist = torch.distributions.Independent(normal, reinterpreted_batch_ndims=x.dim() - 1)
         return dist
 
-    def sample_from_source(self, x: torch.Tensor, t: torch.Tensor | None = None, sigma: float | torch.Tensor | None = None, n_samples: int = 1, reparam: bool = True) -> torch.Tensor:
+    def sample_from_source(self, x: torch.Tensor, 
+                           n_samples: int = 1,
+                           reparam: bool = True) -> torch.Tensor:
+        
         """Draw samples from the source distribution centered at `x`.
 
         Args:
@@ -442,13 +143,13 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         Returns:
             Tensor of shape `(n_samples, B, ...)` if `n_samples>1`, else `(B, ...)`.
         """
-        dist = self.source_distribution(x, t=t, sigma=sigma)
+        dist = self.source_distribution(x)
         if n_samples is None or n_samples <= 1:
             return dist.rsample() if reparam else dist.sample()
         samples = dist.rsample((n_samples,)) if reparam else dist.sample((n_samples,))
         return samples
         
-        
+    
     def training_step(self, surface_in, constant_boundary, varying_boundary, 
                       upper_air_in, train = True, plot_freq = 0, 
                       plot_path = "noise_comparison.png", iter=0,lower_upper: tuple = (0.0001, 0.9999)):
@@ -460,7 +161,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
         B = surface.size(0)
         device = surface.device
-        ts  = lower + (upper - lower)*torch.rand(size=(B,))
+        ts  = lower + (upper - lower)*torch.rand(size=(B,), device=device)
 
         
         # Encode stochastic condition (VAE) and deterministic features
@@ -469,19 +170,32 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         
     
         #source and target distributions
-        base = self.sample_from_source(x, t=ts, sigma=None, n_samples=B, reparam=True)
+        base = self.sample_from_source(x, n_samples=B, reparam=True)
+        assert base.shape == x.shape, f"Expected shape of base noise to match x. Got {base.shape} and {x.shape}."
+        print("base range from ", base.min().item(), " to ", base.max().item())
+        
         target = x  
+        print("target range from ", target.min().item(), " to ", target.max().item())
         
         It = self.I(x0=base, x1=target, t=ts)
+        print("It range from ", It.min().item(), " to ", It.max().item())
         dIdt = self.dIdt(x0=base, x1=target, t=ts)
+        print("dIdt range from ", dIdt.min().item(), " to ", dIdt.max().item())
         It_p = It + self.gamma(ts)*torch.randn_like(It).to(device)
         It_m = It - self.gamma(ts)*torch.randn_like(It).to(device)
+        print("It_p range from ", It_p.min().item(), " to ", It_p.max().item())
+        print("It_m range from ", It_m.min().item(), " to ", It_m.max().item())
+        assert not torch.isnan(It_p).any(), f"It_p has NaN"
+        assert not torch.isnan(z).any(), f"z has NaN"
         
-        noise   = torch.randn(base).to(device)
+        noise   = torch.randn_like(base).to(device)
         drift_p  = self.unet(It_p, z, ts)
         drift_m  = self.unet(It_m, z, ts)
+        print("drift_p range from ", drift_p.min().item(), " to ", drift_p.max().item())
         target_p = dIdt - noise * self.gamma_dot(ts) 
         target_m = dIdt + noise * self.gamma_dot(ts)
+        print("target_p range from ", target_p.min().item(), " to ", target_p.max().item())
+        print("target_m range from ", target_m.min().item(), " to ", target_m.max().item())
     
         
         loss_p= self.image_sq_norm(drift_p - target_p).mean()
@@ -489,9 +203,201 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         
         loss = loss_p + loss_m
         return loss
+    
+    
+    def step_forward(self, x, drift, dt, g, eps = torch.tensor(0.5)):
+        """
+        Perform one step of the forward SDE: x_{t+dt} = x_t + drift*dt + squire(dt)*gamma(t)*eps, where dW ~ N(0, dt).
+        """
+        dW = torch.sqrt(dt)*torch.randn_like(x, device=x.device)
+        #This is from Anthony
+        #x = x + dt*drift + g*dW
+        #This is from 
+        x = x + dt*drift + torch.sqrt(2*eps) * dW
+        return x
+    
+    
         
         
+    @torch.no_grad()
+    def generate(
+        self,
+        model_diff = None,
+        z: torch.Tensor= None,
+        num_samples: int = 1,
+        sample_shape: tuple | None = None,
+        device =  None, 
+        x = None,
+    ) -> torch.Tensor:
+        """
+        Generate images conditioned on a source image's VAE encoding.
+
+        Args:
+            z: conditional information
+            num_samples:     how many samples to draw per condition
+            use_mean:        if True use mu (deterministic), else sample z
+            x: the latent space from deterministic encoder
+        """
+        # Repeat condition for num_samples
+        z = z.repeat_interleave(num_samples, dim=0)
+        assert x.shape == sample_shape
+        if sample_shape is None:
+            C, H, W = z.shape[1:]
+        else:
+            if len(sample_shape) == 4:
+                C, H, W = sample_shape[1:]
+            elif len(sample_shape) == 3:
+                C, H, W = sample_shape
+            else:
+                raise ValueError(f"sample_shape must have 3 or 4 dims, got {sample_shape}")
+
+        shape = (z.size(0), C, H, W)
+    
+        output = self.sample(model = model_diff, shape = shape, x = x, cond = z, device = device)
+        return output
+
+
+    @torch.no_grad()
+    def sample(
+        self,
+        model: ConUNet_1degV2,
+        shape: tuple,
+        cond: torch.Tensor,
+        device: torch.device,
+        T: int = 20,
+        start_end  = (0, 1),
+        x = None,
+        show_progress: bool = True,
+    ) -> torch.Tensor:
+        """Full reverse diffusion loop."""
+        shape = x.shape
+        x = self.sample_from_source(x, n_samples=shape[0], reparam=True).to(device)
+        print("x after sample from source")
+        self.start, self.end = start_end[0], start_end[1]
+        self.ts = torch.linspace(self.start, self.end, T)
         
+        
+        for ii, t in enumerate(self.ts[:-1]):
+                t_current = self.ts[ii]
+                t_next = self.ts[ii+1] 
+                dt = t_next - t_current 
+                x = self.p_sample(model = model, x_t = x, t = t*1000, cond =cond, dt = dt)
+                
+        return x
+
+    @torch.no_grad()
+    def p_sample(
+        self,
+        model: ConUNet_1degV2,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        cond: torch.Tensor,
+        dt: torch.Tensor
+    ) -> torch.Tensor:
+        
+        # Ensure time and dt tensors are on the same device as x_t
+        t = t.to(x_t.device)
+        dt = dt.to(x_t.device)
+        drift = model(x_t, cond, t)
+        y  = self.step_forward(x_t, drift, dt, self.gamma(t))
+
+        return y
+
+
+
+
+    def prediction(self, surface_in, constant_boundary, 
+                   varying_boundary, upper_air_in, 
+                   num_samples = 1, device = None):
+        
+        if len(constant_boundary.size()) == 3:
+            constant_boundary = constant_boundary.unsqueeze(0)
+        surface_in = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+
+        B = surface_in.size(0)
+        device = surface_in.device
+        self.scheduler_diff.to(device)
+        ###############encoder 2 start ########################
+        # 1. Encode condition
+        #######VAE ENCODER START ########
+        surface_vae = self.encoder.patchembed2d(surface_in)
+        upper_air_vae = self.encoder.patchembed3d(upper_air_in)
+        x = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
+
+        B_vae, C_vae, Pl_vae, _, _ = x.shape
+
+        x_vae = x.reshape(B_vae, C_vae, -1).transpose(1, 2)
+        x_vae = self.encoder.layer1(x_vae)
+        # skip = x_vae
+        x_vae = self.encoder.downsample(x_vae) #8, 10350, 384
+        x_vae = self.encoder.layer2(x_vae)
+        x_vae = self.encoder.layer3(x_vae)
+        x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
+        mu = self.encoder.layer_mu(x_vae) # 
+        sigma = self.encoder.layer_sigma(x_vae) 
+        norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
+    
+        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
+        # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
+        
+        ###############encoder 1 start (deterministic) ########################
+        surface_det = self.model_det.patchembed2d(surface_in)
+        upper_air_det = self.model_det.patchembed3d(upper_air_in)
+        x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
+   
+        B_det, C_det, Pl_det, Lat, Lon = x.shape
+        #print("x_det shape before reshape ", x.shape)  #torch.Size([2, 192, 10, 45, 90])
+
+        x_det = x.reshape(B_det, C_det, -1).transpose(1, 2)
+        x_det = self.model_det.layer1(x_det, train=False)
+        skip = x_det
+        x = self.model_det.downsample(x_det)
+        x = self.model_det.layer2(x, train=False)
+        x = self.model_det.layer3(x, train=False)
+        x = x.reshape(B, Pl_det, -1,240*self.params.updown_scale_factor)
+        target_latent_shape = x.shape
+        
+        if torch.isnan(x).any():
+            print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
+        else:
+            print("[NaN check] x before diffusion : no NaN")     
+            
+        x = self.generate(
+            model_diff=self.unet,
+            z=z,
+            x=x,
+            num_samples=num_samples,
+            sample_shape=target_latent_shape,
+            device=device,
+        )
+        
+        if torch.isnan(x).any():
+            print(f"[NaN check] x has NaN: {torch.isnan(x).sum().item()} NaNs")
+        else:
+            print("[NaN check] x : no NaN")
+        print("x shape after diffusion",x.shape)        
+        x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
+        
+        ######## DETERMINISTIC DECODER START ######
+        x = self.model_det.upsample(x)
+        x = self.model_det.layer4(x, train=False)
+        output = torch.concat([x, skip], dim=-1)
+        output = output.transpose(1, 2).reshape(B, -1, Pl_det, Lat, Lon)
+        output_surface = output[:, :, -1, :, :]
+        output_upper_air = output[:, :, :-1, :, :]
+        output_2D = self.model_det.patchrecovery2d(output_surface)
+        output_surface = output_2D[:, self.surface_prognostic_idxs]
+        if torch.isnan(output_surface).any():
+            print(f"[NaN check] output_surface (after patchrecovery2d) has NaN: {torch.isnan(output_surface).sum().item()} NaNs")
+        else:
+            print("[NaN check] output_surface (after patchrecovery2d): no NaN")
+
+        output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
+        output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
+            output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
+        
+        
+        return output_surface, output_upper_air, output_diagnostic 
         
         
         

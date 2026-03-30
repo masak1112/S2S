@@ -54,7 +54,13 @@ class SinusoidalPositionEmbeddings(nn.Module):
         self.dim = dim
 
     def forward(self, time):
+        # Ensure time is on the correct device
         device = time.device
+        #device = next(self.parameters()).device
+        #time = time.to(device)
+        # Ensure time is at least 1-dimensional
+        if time.dim() == 0:
+            time = time.unsqueeze(0)
         half_dim = self.dim // 2
         embeddings = math.log(10000) / (half_dim - 1)
         embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
@@ -221,6 +227,8 @@ class ConUNet_1degV2(nn.Module):
             context_mask = torch.bernoulli(torch.full(cond.shape, self.drop_prob, device=cond.device))
             context_mask = 1 - context_mask  
             cond = cond * context_mask
+        time = time * 1000
+        print("Time range from ", time.min().item(), " to ", time.max().item() )
         t = self.time_mlp(time)
         # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
         cond = self.project_c(cond, t)
@@ -336,7 +344,6 @@ class DDPMScheduler:
             return mean
         noise = torch.randn_like(x_t)
         
-
         return mean + betas_t.sqrt() * noise
 
     @torch.no_grad()
