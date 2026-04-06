@@ -1,9 +1,7 @@
 #!/bin/bash -l
-#SBATCH --account=pi-pedramh
-#SBATCH --time=20:10:00
-#SBATCH -p pedramh-gpu 
+
+#SBATCH --time=01:10:00
 #SBATCH --nodes=1
-#SBATCH --mem=500G
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8 
@@ -16,7 +14,7 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 ulimit -l unlimited
 ml python
 
-source activate /project/pedramh/bing/env
+source activate /home/ucg-aepmn/uchigaco
 export WANDB_MODE=offline
 module unload cuda
 module load cuda/12.6
@@ -50,13 +48,7 @@ config_file=../config/exp2.yaml
 
 
 echo "--- STARTING NSYS PROFILING RUN (TARGET: EPOCH 1) ---"
-
-
-
-nsys profile -w true -t cuda,nvtx \
-    -o nsys_report_%q{SLURM_JOB_ID} \
-    --force-overwrite=true \
-    /project/pedramh/bing/env/bin/torchrun \
+    torchrun \
     --standalone \
     --nproc_per_node=$NUM_TASKS_PER_NODE \
     ../train.py \
