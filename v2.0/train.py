@@ -34,7 +34,7 @@ from utils.power_spectrum import *
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
     Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
     Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
-from utils.data_loader_multifiles import get_data_loader
+from utils.data_loader_multifiles_optimized import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
@@ -81,24 +81,21 @@ def weighted_rmse_torch_3D(pred, target, latitudes):
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
 
-def grad_norm(model):
-    total_norm = 0
-    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
-    for p in parameters:
-        param_norm = p.grad.detach().data.norm(2)
-        total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** 0.5
-    return total_norm
-
-def grad_max(model):
-    max_grad = 0
-    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
-    for p in parameters:
-        param_max = torch.max(torch.abs(p.grad.detach().data))
-        if max_grad < param_max.item():
-            max_grad = param_max.item()
-    return param_max
-
+# def grad_norm_and_max(model):
+#     """Compute grad L2-norm and grad max in one fused pass — no per-parameter .item() syncs."""
+#     grads = [p.grad.detach().flatten() for p in model.parameters()
+#              if p.grad is not None and p.requires_grad]
+#     if not grads:
+#         return torch.tensor(0.0), torch.tensor(0.0)
+#     all_grads = torch.cat(grads)
+#     return torch.norm(all_grads, 2), torch.max(torch.abs(all_grads))
+def grad_norm_and_max(model):
+      params = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+      if not params:
+          return torch.tensor(0.0), torch.tensor(0.0)
+      norms  = torch.stack([p.grad.detach().norm(2) for p in params])
+      maxes  = torch.stack([p.grad.detach().abs().max() for p in params])
+      return norms.norm(2), maxes.max()   # one .item() only at logging time
 
 def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'lon', 'time'], weighted=True):
     scores = []
@@ -184,6 +181,7 @@ class Trainer():
         self.params = params
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+        self.latitudes = torch.from_numpy(np.array(params.lat)).to(self.device)
         ###Setup the initia epochs and iteration #######
         self.iters = 0
         self.startEpoch = 0
@@ -411,6 +409,9 @@ class Trainer():
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
+        # Mahsa 
+        # # Keep model weights in channels-last (NHWC) to avoid cuDNN layout conversions
+        # self.model = self.model.to(memory_format=torch.channels_last)
 
         # _compile_mode = "max-autotune"
         # self.model = torch.compile(self.model, mode=_compile_mode, fullgraph=False)
@@ -679,6 +680,8 @@ class Trainer():
 
         self.model.train()
 
+        latitudes = self.latitudes
+
         pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
@@ -691,11 +694,11 @@ class Trainer():
             else:
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
-            #prefetch data
-            nvtx.range_push("initial_prefetch")
-            data_iter = iter(train_data_loader)
-            nvtx.range_pop()  # End initial_prefetch
-            data = next(data_iter)
+            #prefetch data   ---- Mahsa: prefetching one batch?!
+            # nvtx.range_push("initial_prefetch")
+            # data_iter = iter(train_data_loader)
+            # nvtx.range_pop()  # End initial_prefetch
+            # data = next(data_iter)
             for i, data in enumerate(train_data_loader):
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
@@ -719,16 +722,16 @@ class Trainer():
                     self.model.zero_grad()
                 
                     #define loss
-                    nvtx.range_push("forward_loss")  # Start forward_pass and calculate the loss
+                    #nvtx.range_push("forward_loss")  # Start forward_pass and calculate the loss
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
                     )
-                    nvtx.range_pop()  # End forward_pass and calculate the loss
-                    nvtx.range_push("backpropagation")  # Start backpropagation and optimizer step
+                    #nvtx.range_pop()  # End forward_pass and calculate the loss
+                    #nvtx.range_push("backpropagation")  # Start backpropagation and optimizer step
                     self.scaler.scale(loss).backward()
-                    nvtx.range_pop()  # End backpropagation and optimizer step
-                    nvtx.range_push("optimizer_step")  # Start optimizer step
+                    #nvtx.range_pop()  # End backpropagation and optimizer step
+                    #nvtx.range_push("optimizer_step")  # Start optimizer step
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     
@@ -736,7 +739,7 @@ class Trainer():
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
-                    nvtx.range_pop()  # End optimizer step
+                    #nvtx.range_pop()  # End optimizer step
                     
                     if (i % 20 == 0): #only     log every 20 iterations to reduce overhead
                         nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
@@ -745,7 +748,6 @@ class Trainer():
                                 output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
                                 target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
 
-                            latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
                             surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
                             upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
 
@@ -770,17 +772,17 @@ class Trainer():
                                 wandb.log(diagnostic_logs, step= self.iters)
                         nvtx.range_pop()  # End update_running_results
                     
-                        nvtx.range_push("empty cache")
-                        torch.cuda.empty_cache()
-                        nvtx.range_pop()
+                        # empty_cache() removed: it forces cudaDeviceSynchronize + cudaMemGetInfo
+                        # and stalls the GPU pipeline every 20 iterations for no benefit.
                     tr_time += time.time() - tr_start
                 
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
                 nvtx.range_pop()  # End train_step
               
-        pbar.close()
         
-        pbar.update(1)
+        pbar.close()
+        # pbar.update(1)
+
         nvtx.range_push("logging")  # Start logging
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
         nvtx.range_pop()  # End logging
@@ -824,7 +826,26 @@ class Trainer():
                                     [input_surface, input_upper_air, target_surface, target_upper_air, 
                                     varying_boundary_data]]
                 input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
-        
+        #Mahsa:
+        # Convert to channels-last to keep tensors in NHWC throughout and avoid
+        # repeated nchwToNhwcKernel / nhwcToNchwKernel conversions inside cuDNN.
+        # Surface/boundary tensors are 4D [B,C,H,W]  → channels_last
+        # Upper-air tensors are 5D [B,C,P,H,W]        → channels_last_3d
+        cl, cl3 = torch.channels_last, torch.channels_last_3d
+        if isinstance(input_surface, torch.Tensor):
+            input_surface  = input_surface.to(memory_format=cl)
+        if isinstance(input_upper_air, torch.Tensor):
+            input_upper_air = input_upper_air.to(memory_format=cl3)
+        if isinstance(target_surface, torch.Tensor):
+            target_surface  = target_surface.to(memory_format=cl)
+        if isinstance(target_upper_air, torch.Tensor):
+            target_upper_air = target_upper_air.to(memory_format=cl3)
+        if isinstance(target_diagnostic, torch.Tensor):
+            target_diagnostic = target_diagnostic.to(memory_format=cl)
+        if isinstance(varying_boundary_data, torch.Tensor):
+            varying_boundary_data = varying_boundary_data.to(
+                memory_format=cl if varying_boundary_data.dim() == 4 else cl3)
+            
         return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
 
 
@@ -890,8 +911,9 @@ class Trainer():
         Given the diagnostic logging input and return the update diagnostic_logs
         """
 
-        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
-        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+        _grad_norm, _grad_max = grad_norm_and_max(self.model)
+        diagnostic_logs['batch_grad_norm'] = _grad_norm.to(self.device)
+        diagnostic_logs['batch_grad_max'] = _grad_max.to(self.device)
         
         for key, value in kwargs.items():
             diagnostic_logs[key] = value
@@ -915,7 +937,8 @@ class Trainer():
                     diagnostic_logs[key] = torch.max(grad_max_tensor)
                 else:
                     dist.all_reduce(diagnostic_logs[key].detach())
-                    diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+                    diagnostic_logs[key] = diagnostic_logs[key] / dist.get_world_size()
+                    # float() deferred to wandb.log() — avoids one cudaStreamSynchronize per key
 
         return diagnostic_logs
 
@@ -999,8 +1022,7 @@ class Trainer():
         # define the lead times to evaluate (in time steps)
         
         lead_times_steps = self.params.forecast_lead_times
-        with torch.no_grad():
-                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
+        latitudes = self.latitudes
 
         # Initialize validation loss variables
         valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, \
@@ -1019,10 +1041,8 @@ class Trainer():
         acc_predictions = []
         acc_ground_truths = []
 
-        # with torch.inference_mode():
+        with torch.inference_mode():
 
-        with torch.no_grad():
-            
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
          
                 if world_rank == 0:
@@ -1062,31 +1082,22 @@ class Trainer():
        
 
                 # get the correct start times for each sample
-                start_times = []
-                for i in range(times.shape[0]):  # Iterate over all samples in the batch
-                    
-                    start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
-                    start_times.append(start_time)
+                # move times to CPU once — avoids 4 × batch_size cudaStreamSynchronize calls (one per .item())
+                times_cpu = times.cpu().numpy().astype(int)
+                start_times = [
+                    self.valid_dataset.datetime_class(times_cpu[i, 0], times_cpu[i, 1], times_cpu[i, 2], hour=times_cpu[i, 3])
+                    for i in range(times_cpu.shape[0])
+                ]
                 
                 max_lead_time = max(lead_times_steps)
 
-                # Tensor for all time steps (ACC calculation)
-                val_output_surface_acc = np.zeros((val_input_surface.shape[0], max_lead_time,
-                                               val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                              dtype=np.float32)
-                val_output_upper_air_acc = np.zeros((val_input_upper_air.shape[0], max_lead_time,
-                                                 val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                                 val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                dtype=np.float32)
-                if self.params.has_diagnostic:
-                    val_output_diagnostic_acc = np.zeros((val_target_diagnostic.shape[0], max_lead_time,
-                                                    val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                    val_target_diagnostic.shape[4]), dtype=np.float32)
+                # GPU accumulation lists for ACC/GIF diagnostics (all time steps needed)
+                if self.params.diagnostic_acc or self.params.diagnostic_gif:
+                    _surf_steps_gpu = []
+                    _ua_steps_gpu   = []
+                    if self.params.has_diagnostic:
+                        _diag_steps_gpu = []
                 
-                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
-                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
-
 
                 # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
@@ -1096,20 +1107,25 @@ class Trainer():
                                          val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                          val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                         dtype=np.float32)
-                                        
+                if self.params.has_diagnostic:
+                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
+                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
+                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
                 step_idx = 0
                 
                 for step in range(max_lead_time):
-                    #nvtx.range_push(f"validation_step_{step}")
+                    nvtx.range_push(f"val_model_forward_step{step}")
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic, _, _  = self.model(
                             val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                     else:
-                        val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
+                        val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data,
                                                                                 val_varying_boundary_data[:, step], val_input_upper_air)
-                 
+                    nvtx.range_pop()  # End val_model_forward
+
                     # Calculate losses for different lead times
                     if (step + 1) in lead_times_steps:
+                        nvtx.range_push(f"val_loss_step{step}")
                         # target_index = lead_times_steps.index(step + 1)
                         target_index = step
                         if self.params.predict_delta:
@@ -1131,19 +1147,21 @@ class Trainer():
                             valid_loss_pl += loss_pl
                             if self.params.has_diagnostic:
                                 valid_loss_diag += loss_diag
+                        nvtx.range_pop()  # End val_loss
 
                     if self.params.predict_delta:
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                         val_output_upper_air)
-                    # Store output for ACC calculation (all time steps)
-                    val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                    val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                    if self.params.has_diagnostic:
-                        val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
+                    if self.params.diagnostic_acc or self.params.diagnostic_gif:
+                          _surf_steps_gpu.append(val_output_surface.detach())
+                          _ua_steps_gpu.append(val_output_upper_air.detach())
+                          if self.params.has_diagnostic:
+                              _diag_steps_gpu.append(val_output_diagnostic.detach())
 
                 
                     # Calculate losses for different lead times
                     if (step + 1) in lead_times_steps:
+                        nvtx.range_push(f"val_postprocess_step{step}")
                         # Calculate RMSE
                         rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], latitudes)
                         rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], latitudes)
@@ -1151,7 +1169,7 @@ class Trainer():
                             rmse_diag = weighted_rmse_torch_channels(val_output_diagnostic, val_target_diagnostic[:,target_index], latitudes)
                             multi_step_rmse[f"valid_lwrmse_diag_{step+1}step"] += torch.mean(rmse_diag)
                             valid_diagnostic_lwrmse[step_idx] += torch.mean(rmse_diag, dim = 0)
-                            val_output_diagnostic_t[:, step_idx] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
+                            val_output_diagnostic_t[:, step_idx] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic).cpu().numpy()
 
                         multi_step_rmse[f"valid_lwrmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
                         multi_step_rmse[f"valid_lwrmse_pl_{step+1}step"] += torch.mean(rmse_pl)
@@ -1159,13 +1177,24 @@ class Trainer():
                         valid_surface_lwrmse[step_idx] += torch.mean(rmse_sfc, dim = 0)
                         valid_upper_air_lwrmse[step_idx] += torch.mean(rmse_pl, dim=0)
 
-                        val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                        val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                        
-                        if step + 1 == max_lead_time:
+                        val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface.detach()).cpu().numpy()
+                        val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.detach()).cpu().numpy()
 
+                        if step + 1 == max_lead_time:
                             # Prepare datasets for ACC (all time steps)
                             if self.params.diagnostic_acc or self.params.diagnostic_gif:
+                                # inv_transform on GPU, single D2H at the end
+                                _surf_gpu = torch.stack(_surf_steps_gpu, dim=1)
+                                _ua_gpu   = torch.stack(_ua_steps_gpu,   dim=1)
+                                B, T = _surf_gpu.shape[:2]
+                                val_output_surface_acc = self.valid_dataset.surface_inv_transform(
+                                    _surf_gpu.view(B * T, *_surf_gpu.shape[2:])).cpu().numpy().reshape(B, T, *_surf_gpu.shape[2:])
+                                val_output_upper_air_acc = self.valid_dataset.upper_air_inv_transform(
+                                    _ua_gpu.view(B * T, *_ua_gpu.shape[2:])).cpu().numpy().reshape(B, T, *_ua_gpu.shape[2:])
+                                if self.params.has_diagnostic:
+                                    _diag_gpu = torch.stack(_diag_steps_gpu, dim=1)
+                                    val_output_diagnostic_acc = self.valid_dataset.diagnostic_inv_transform(
+                                        _diag_gpu.view(B * T, *_diag_gpu.shape[2:])).cpu().numpy().reshape(B, T, *_diag_gpu.shape[2:])
                                 if self.params.has_diagnostic:
                                     acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True,
                                                                         diagnostic_prediction=val_output_diagnostic_acc)
@@ -1203,7 +1232,7 @@ class Trainer():
                                 # gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
                                 # gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
 
-                                # only take the necessary indices as the dataloader now returns all time steps. 
+                                # only take the necessary indices as the dataloader now returns all time steps.
                                 gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices].cpu()).numpy()
                                 gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices].cpu()).numpy()
                                 if self.params.has_diagnostic:
@@ -1219,24 +1248,24 @@ class Trainer():
                                 all_ground_truths.append(gt_combined_dataset)
 
                         step_idx += 1
-                   
+                        nvtx.range_pop()  # End val_postprocess
+
                     val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
                     del val_output_surface, val_output_upper_air
              
                 del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
-                torch.cuda.empty_cache()
                 valid_steps += 1.
                 #only test first 30 examples
                 if valid_steps > 10:
-                    break 
-                
+                    break
+            torch.cuda.empty_cache()
             print("Finished batch validation.")
  
         if self.params.diagnostic_spectra:
             combined_predictions = xr.concat(all_predictions, dim='time')
             combined_ground_truths = xr.concat(all_ground_truths, dim='time')
         print("\nFinished combining predictions and ground truths.")
-           
+
 
         if self.params.diagnostic_acc or self.params.diagnostic_gif:
             acc_combined_predictions = xr.concat(acc_predictions, dim='time')
@@ -1344,7 +1373,7 @@ class Trainer():
 
         # Add multi-day losses to diagnostic logs
         for key, value in multi_step_losses.items():
-            diagnostic_logs[key] = value.item()
+            diagnostic_logs[key] = value  # keep on GPU; wandb handles tensor scalars
 
         if self.params.log_to_wandb:
             wandb.log(diagnostic_logs)
@@ -1445,7 +1474,7 @@ class Trainer():
                         data=diagnostic_prediction[sample, :, idx],
                         dims=["time", "lat", "lon"],
                         coords={'time': time_range,
-                                'lat': dataset.lat.valuegs,
+                                'lat': dataset.lat.values,
                                 'lon': dataset.lon.values}
                     )
                     #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
