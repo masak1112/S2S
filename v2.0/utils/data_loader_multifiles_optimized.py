@@ -102,8 +102,8 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
                             sampler=sampler,# if train else None,
                             drop_last=True,
                             pin_memory=torch.cuda.is_available(),
-                            # prefetch_factor=4,
-                            # persistent_workers=True
+                            # prefetch_factor=2,
+                            # persistent_workers=params.num_data_workers > 0 and not params.train_year_to_year,
                     ) #     
 
     if train:
@@ -159,7 +159,7 @@ class GetDataset(Dataset):
             
 
         if hasattr(params, 'ocean_variables'):
-            if len(params.land_variables) > 0:
+            if len(params.ocean_variables) > 0:  #Mahsa - should be ocean_variable not land_variable
                 if any([ocean_variable in self.surface_variables for ocean_variable in params.ocean_variables]):
                     raise ValueError('ocean variables cannot be in surface variables.')
                 self.ocean_variables = params.ocean_variables
@@ -286,7 +286,7 @@ class GetDataset(Dataset):
                 varying_boundary = self._fill_mask(varying_boundary, self.varying_boundary_variables)
                 return upper_air, surface, varying_boundary
             else:
-                return upper_air, diagnostic
+                return upper_air, surface # Mahsa: it was diagnostic before, `diagnostic` is undefined here — NameError
             
 
     def _fill_mask(self, data, variables, optional_variables = None):
@@ -563,7 +563,7 @@ class GetDataset(Dataset):
             start_time = self.start_date + timedelta(hours=self.dates[index])
             data_in = self._get_data(start_time, out = False)
             if len(self.varying_boundary_variables) > 0:
-                surface_t, upper_air_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False)
+                upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False) #Mahsa: switched surface and upper air- _reshape_and_mask_variables returns (upper_air, surface, varying_boundary)
                 varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
             else:
                 surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out=False)
@@ -625,6 +625,8 @@ def get_infer_data(params, files_pattern, distributed, year_start, year_end, ste
                             shuffle=False,  # (sampler is None),
                             sampler=None,# if train else None,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available(),prefetch_factor=8)
+                            pin_memory=torch.cuda.is_available(),
+                            persistent_workers=True,
+                            prefetch_factor=8)
 
     return dataloader, dataset

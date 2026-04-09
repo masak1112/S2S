@@ -81,15 +81,21 @@ def weighted_rmse_torch_3D(pred, target, latitudes):
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
 
+# def grad_norm_and_max(model):
+#     """Compute grad L2-norm and grad max in one fused pass — no per-parameter .item() syncs."""
+#     grads = [p.grad.detach().flatten() for p in model.parameters()
+#              if p.grad is not None and p.requires_grad]
+#     if not grads:
+#         return torch.tensor(0.0), torch.tensor(0.0)
+#     all_grads = torch.cat(grads)
+#     return torch.norm(all_grads, 2), torch.max(torch.abs(all_grads))
 def grad_norm_and_max(model):
-    """Compute grad L2-norm and grad max in one fused pass — no per-parameter .item() syncs."""
-    grads = [p.grad.detach().flatten() for p in model.parameters()
-             if p.grad is not None and p.requires_grad]
-    if not grads:
-        return torch.tensor(0.0), torch.tensor(0.0)
-    all_grads = torch.cat(grads)
-    return torch.norm(all_grads, 2), torch.max(torch.abs(all_grads))
-
+      params = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+      if not params:
+          return torch.tensor(0.0), torch.tensor(0.0)
+      norms  = torch.stack([p.grad.detach().norm(2) for p in params])
+      maxes  = torch.stack([p.grad.detach().abs().max() for p in params])
+      return norms.norm(2), maxes.max()   # one .item() only at logging time
 
 def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'lon', 'time'], weighted=True):
     scores = []
@@ -403,6 +409,9 @@ class Trainer():
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
+        # Mahsa 
+        # # Keep model weights in channels-last (NHWC) to avoid cuDNN layout conversions
+        # self.model = self.model.to(memory_format=torch.channels_last)
 
         # _compile_mode = "max-autotune"
         # self.model = torch.compile(self.model, mode=_compile_mode, fullgraph=False)
@@ -685,11 +694,11 @@ class Trainer():
             else:
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
-            #prefetch data
-            nvtx.range_push("initial_prefetch")
-            data_iter = iter(train_data_loader)
-            nvtx.range_pop()  # End initial_prefetch
-            data = next(data_iter)
+            #prefetch data   ---- Mahsa: prefetching one batch?!
+            # nvtx.range_push("initial_prefetch")
+            # data_iter = iter(train_data_loader)
+            # nvtx.range_pop()  # End initial_prefetch
+            # data = next(data_iter)
             for i, data in enumerate(train_data_loader):
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
@@ -713,16 +722,16 @@ class Trainer():
                     self.model.zero_grad()
                 
                     #define loss
-                    nvtx.range_push("forward_loss")  # Start forward_pass and calculate the loss
+                    #nvtx.range_push("forward_loss")  # Start forward_pass and calculate the loss
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
                     )
-                    nvtx.range_pop()  # End forward_pass and calculate the loss
-                    nvtx.range_push("backpropagation")  # Start backpropagation and optimizer step
+                    #nvtx.range_pop()  # End forward_pass and calculate the loss
+                    #nvtx.range_push("backpropagation")  # Start backpropagation and optimizer step
                     self.scaler.scale(loss).backward()
-                    nvtx.range_pop()  # End backpropagation and optimizer step
-                    nvtx.range_push("optimizer_step")  # Start optimizer step
+                    #nvtx.range_pop()  # End backpropagation and optimizer step
+                    #nvtx.range_push("optimizer_step")  # Start optimizer step
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     
@@ -730,7 +739,7 @@ class Trainer():
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
-                    nvtx.range_pop()  # End optimizer step
+                    #nvtx.range_pop()  # End optimizer step
                     
                     if (i % 20 == 0): #only     log every 20 iterations to reduce overhead
                         nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
@@ -770,9 +779,10 @@ class Trainer():
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
                 nvtx.range_pop()  # End train_step
               
-        pbar.close()
         
-        pbar.update(1)
+        pbar.close()
+        # pbar.update(1)
+
         nvtx.range_push("logging")  # Start logging
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
         nvtx.range_pop()  # End logging
@@ -816,7 +826,26 @@ class Trainer():
                                     [input_surface, input_upper_air, target_surface, target_upper_air, 
                                     varying_boundary_data]]
                 input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
-        
+        #Mahsa:
+        # Convert to channels-last to keep tensors in NHWC throughout and avoid
+        # repeated nchwToNhwcKernel / nhwcToNchwKernel conversions inside cuDNN.
+        # Surface/boundary tensors are 4D [B,C,H,W]  → channels_last
+        # Upper-air tensors are 5D [B,C,P,H,W]        → channels_last_3d
+        cl, cl3 = torch.channels_last, torch.channels_last_3d
+        if isinstance(input_surface, torch.Tensor):
+            input_surface  = input_surface.to(memory_format=cl)
+        if isinstance(input_upper_air, torch.Tensor):
+            input_upper_air = input_upper_air.to(memory_format=cl3)
+        if isinstance(target_surface, torch.Tensor):
+            target_surface  = target_surface.to(memory_format=cl)
+        if isinstance(target_upper_air, torch.Tensor):
+            target_upper_air = target_upper_air.to(memory_format=cl3)
+        if isinstance(target_diagnostic, torch.Tensor):
+            target_diagnostic = target_diagnostic.to(memory_format=cl)
+        if isinstance(varying_boundary_data, torch.Tensor):
+            varying_boundary_data = varying_boundary_data.to(
+                memory_format=cl if varying_boundary_data.dim() == 4 else cl3)
+            
         return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
 
 
@@ -1062,17 +1091,13 @@ class Trainer():
                 
                 max_lead_time = max(lead_times_steps)
 
-                # Accumulate raw GPU outputs — one D2H transfer after the step loop
-                # instead of one per step (eliminates 2-3 × max_lead_time cudaMemcpyAsync per batch)
-                _surf_steps_gpu = []
-                _ua_steps_gpu   = []
-                if self.params.has_diagnostic:
-                    _diag_steps_gpu = []
+                # GPU accumulation lists for ACC/GIF diagnostics (all time steps needed)
+                if self.params.diagnostic_acc or self.params.diagnostic_gif:
+                    _surf_steps_gpu = []
+                    _ua_steps_gpu   = []
+                    if self.params.has_diagnostic:
+                        _diag_steps_gpu = []
                 
-                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
-                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
-
 
                 # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
@@ -1082,7 +1107,10 @@ class Trainer():
                                          val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                          val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                         dtype=np.float32)
-
+                if self.params.has_diagnostic:
+                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
+                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
+                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
                 step_idx = 0
                 
                 for step in range(max_lead_time):
@@ -1124,11 +1152,11 @@ class Trainer():
                     if self.params.predict_delta:
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                         val_output_upper_air)
-                    # Store raw GPU tensor — D2H deferred to after the step loop
-                    _surf_steps_gpu.append(val_output_surface.detach())
-                    _ua_steps_gpu.append(val_output_upper_air.detach())
-                    if self.params.has_diagnostic:
-                        _diag_steps_gpu.append(val_output_diagnostic.detach())
+                    if self.params.diagnostic_acc or self.params.diagnostic_gif:
+                          _surf_steps_gpu.append(val_output_surface.detach())
+                          _ua_steps_gpu.append(val_output_upper_air.detach())
+                          if self.params.has_diagnostic:
+                              _diag_steps_gpu.append(val_output_diagnostic.detach())
 
                 
                     # Calculate losses for different lead times
