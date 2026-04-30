@@ -366,17 +366,17 @@ class GetDataset(Dataset):
     
     def surface_inv_transform(self, data):
         if isinstance(data, torch.Tensor) and data.device.type != 'cpu':
-            if not hasattr(self, '_surface_mean_gpu') or self._surface_mean_gpu.device != data.device:
-                self._surface_mean_gpu = self.surface_mean.to(data.device)
-                self._surface_std_gpu  = self.surface_std.to(data.device)
+            if not hasattr(self, '_surface_mean_gpu') or self._surface_mean_gpu.device != data.device or self._surface_mean_gpu.dtype != data.dtype:
+                self._surface_mean_gpu = self.surface_mean.to(data.device, dtype=data.dtype)
+                self._surface_std_gpu  = self.surface_std.to(data.device, dtype=data.dtype)
             return data * self._surface_std_gpu.reshape(1, -1, 1, 1) + self._surface_mean_gpu.reshape(1, -1, 1, 1)
         return data * self.surface_std.reshape(1, -1, 1, 1) + self.surface_mean.reshape(1, -1, 1, 1)
 
     def upper_air_inv_transform(self, data):
         if isinstance(data, torch.Tensor) and data.device.type != 'cpu':
-            if not hasattr(self, '_upper_air_mean_gpu') or self._upper_air_mean_gpu.device != data.device:
-                self._upper_air_mean_gpu = self.upper_air_mean.to(data.device)
-                self._upper_air_std_gpu  = self.upper_air_std.to(data.device)
+            if not hasattr(self, '_upper_air_mean_gpu') or self._upper_air_mean_gpu.device != data.device or self._upper_air_mean_gpu.dtype != data.dtype:
+                self._upper_air_mean_gpu = self.upper_air_mean.to(data.device, dtype=data.dtype)
+                self._upper_air_std_gpu  = self.upper_air_std.to(data.device, dtype=data.dtype)
             return data * self._upper_air_std_gpu.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
                 self._upper_air_mean_gpu.reshape(1, len(self.upper_air_variables), -1, 1, 1)
         return data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
@@ -384,9 +384,9 @@ class GetDataset(Dataset):
 
     def diagnostic_inv_transform(self, data):
         if isinstance(data, torch.Tensor) and data.device.type != 'cpu':
-            if not hasattr(self, '_diagnostic_mean_gpu') or self._diagnostic_mean_gpu.device != data.device:
-                self._diagnostic_mean_gpu = self.diagnostic_mean.to(data.device)
-                self._diagnostic_std_gpu  = self.diagnostic_std.to(data.device)
+            if not hasattr(self, '_diagnostic_mean_gpu') or self._diagnostic_mean_gpu.device != data.device or self._diagnostic_mean_gpu.dtype != data.dtype:
+                self._diagnostic_mean_gpu = self.diagnostic_mean.to(data.device, dtype=data.dtype)
+                self._diagnostic_std_gpu  = self.diagnostic_std.to(data.device, dtype=data.dtype)
             return data * self._diagnostic_std_gpu.reshape(1, -1, 1, 1) + self._diagnostic_mean_gpu.reshape(1, -1, 1, 1)
         return data * self.diagnostic_std.reshape(1, -1, 1, 1) + self.diagnostic_mean.reshape(1, -1, 1, 1)
 

@@ -26,6 +26,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 from utils.integrate import Integrator, forward_euler
+import torch.cuda.nvtx as nvtx
 
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -33,11 +34,6 @@ torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache() 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
-
-# Initialize MPI
-# comm = MPI.COMM_WORLD
-# rank = comm.Get_rank()
-# size = comm.Get_size()
 
 class Stepper():
     def count_parameters(self):
@@ -71,20 +67,12 @@ class Stepper():
             self.mask_output = params.mask_output
 
 
-        # if params.log_to_wandb:
-        #     wandb.init(config=params, name=params.name, group=params.group, project=params.project,
-        #                entity=params.entity, settings=wandb.Settings(_disable_stats=True) )
-
         logging.info('rank %d, begin data loader init' % world_rank)
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
                                                                      num_inferences = params.num_inferences, validate = True)
         print(f'Valid dataset length: {len(self.valid_dataset)}')
-        # self.infer_data_loader, self.infer_dataset = get_infer_data(params, params.data_dir, dist.is_initialized(),
-        #                                                              year_start=params.val_year_start,
-        #                                                              year_end=params.val_year_end, step=1462,
-        #                                                              num_inferences = params.num_inferences, validate = True)
 
         self.constant_boundary_data = self.valid_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
@@ -105,16 +93,10 @@ class Stepper():
                 mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
-            if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
-                self.integrator = Integrator(params, surface_ff_std=self.valid_dataset.surface_std.detach().to(self.device),
-                                               surface_delta_std=self.valid_dataset.surface_delta_std.detach().to(self.device),
-                                               upper_air_ff_std=self.valid_dataset.upper_air_std.detach().to(self.device),
-                                               upper_air_delta_std=self.valid_dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
-            else:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+     
+            self.model = PanguModel_Plasim(params, land_mask = land_mask, 
                                                mask_fill = self.valid_dataset.mask_fill).to(self.device)
-            # self.model = torch.compile(self.model, mode = 'default')
+
         else:
             raise Exception("not implemented")
 
@@ -128,7 +110,7 @@ class Stepper():
     def predict(self):
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
-        valid_time, valid_logs = self.validate_one_epoch()
+        valid_time = self.validate_one_epoch()
         
 
     def validate_one_epoch(self):
@@ -138,98 +120,71 @@ class Stepper():
     
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
-                for ens_id in list(range(30)):
-                    if self.params.predict_delta:
-                        if self.params.has_diagnostic:
-                            val_input_surface, val_input_upper_air, _, _, _, _, _,\
-                                val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                        else:
-                            val_input_surface, val_input_upper_air, _, _, _, _,\
-                                val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    else:
-                        if self.params.has_diagnostic:
-                            val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
+                if i > 5:
+                    break
+                for ens_id in list(range(2)):
+                    nvtx.range_push(f"inference step {i}_ens_{ens_id}")  # Start inference step
+                    val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
                                 lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                        else:
-                            val_input_surface, val_input_upper_air, _, _, _, times = map(
-                                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    
+  
                     start_times = []
+                    
                     for i in range(times.shape[0]):  # Iterate over all samples in the batch
                         start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
                         start_times.append(start_time)
-
-                
-                    val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                    val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                    dtype = np.float32)
-                    val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
-                                                    val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                                        val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                    dtype = np.float32)
-                    if self.params.has_diagnostic:
-                        val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
+               
+                   
+                    val_output_diagnostic = torch.zeros((val_input_surface.shape[0], 
                                                         self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                        dtype = np.float32)
-                    
-                    val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                    val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-                
+                                                        dtype = torch.float32, device=self.device)
 
+                    _val_output_surface_gpu  = [val_input_surface.detach()] # initialize with input surface for diagnostic variables
+                    _val_output_upper_air_gpu = [val_input_upper_air.detach()] # initialize with input upper air for surface variables
+                    _val_output_diagnostic_gpu = [val_output_diagnostic]
+                    
+                    
                     for time_step in range(self.params['inference_steps']):
-                        if self.params.has_diagnostic:
-                            val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
+                        nvtx.range_push(f"model forward {time_step}")  # Start model forward
+                        val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
                                                                                                 self.constant_boundary_data, 
                                                                                                 val_varying_boundary_data[:,time_step],
                                                                                                 val_input_upper_air)
-                            # if time_step == 0 and ens_id == 0  and self.world_rank == 0:
-                            #     logging.info(f'Before transform ------------------------')
-                            #     logging.info(f'Validation output diagnostic shape: {val_out_diagnostic.shape}')
-                            #     logging.info(f'Validation output maximum value: {val_out_diagnostic[:,0,:,:].max()}')
-                            #     logging.info(f'Validation output minimum value: {val_out_diagnostic[:,0,:,:].min()}')
-                            #     dia_max = val_out_diagnostic[:,0,:,:].max()
-                            #     dia_min = val_out_diagnostic[:,0,:,:].min()
-                            val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
-                            # if time_step == 0 and ens_id == 0 and self.world_rank == 0:
-                            #     logging.info(f'After transform ------------------------')
-                            #     val_output_max_test = dia_max * 0.00547 + 0.002398
-                            #     val_out_min_test =  dia_min * 0.00547 + 0.002398
-            
-                            #     logging.info(f'Validation output diagnostic shape: {val_output_diagnostic[:, time_step + 1][:,0,:,:].shape}')
-                            #     logging.info(f'Validation output maximum value: {val_output_diagnostic[:, time_step + 1][:,0,:,:].max()}')
-                            #     logging.info(f'Validation output minimum value: {val_output_diagnostic[:, time_step + 1][:,0,:,:].min()}')
-                            #     logging.info(f'Test max: {val_output_max_test}, Test min: {val_out_min_test}')
-                                
-
-                        else:
-                            val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                                val_varying_boundary_data[:,time_step], val_input_upper_air)
-                        if self.params.predict_delta:
-                            val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
-                        else:
-                            val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
-                        
-            
-                        val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                        val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
                         
                         
+                        _val_output_diagnostic_gpu.append(val_out_diagnostic.detach())
+                        _val_output_surface_gpu.append(val_out_surface.detach())
+                        _val_output_upper_air_gpu.append(val_out_upper_air.detach())
                     
-    
-                    # if self.params.has_diagnostic:
-                    #     self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
-                    # else:
-                    #     self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
+                        nvtx.range_pop()  # End model forward
+     
+                    
+                    _val_output_surface_gpu = torch.stack(_val_output_surface_gpu, dim=1)
+                    _val_output_upper_air_gpu  = torch.stack(_val_output_upper_air_gpu,  dim=1)
+                    _val_output_diagnostic_gpu = torch.stack(_val_output_diagnostic_gpu, dim=1)
+
+                    B, T = _val_output_surface_gpu.shape[:2]
+                    val_output_surface = self.valid_dataset.surface_inv_transform(
+                    _val_output_surface_gpu.view(B * T, *_val_output_surface_gpu.shape[2:])).cpu().numpy().reshape(B, T, *_val_output_surface_gpu.shape[2:])
+                    val_output_upper_air = self.valid_dataset.upper_air_inv_transform(
+                    _val_output_upper_air_gpu.view(B * T, *_val_output_upper_air_gpu.shape[2:])).cpu().numpy().reshape(B, T, *_val_output_upper_air_gpu.shape[2:]) 
+
+
+         
+                    val_output_diagnostic = self.valid_dataset.diagnostic_inv_transform(
+                                                _val_output_diagnostic_gpu.view(B * T, 
+                                                *_val_output_diagnostic_gpu.shape[2:])).cpu().numpy().reshape(B, T, *_val_output_diagnostic_gpu.shape[2:])
+               
+                
+                    nvtx.range_pop()  # End inference step
+                    nvtx.range_push("saving predictions for inference step {} ensemble member {}".format(i, ens_id))  # Start saving predictions
+                    self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
+                    nvtx.range_pop()  # End saving predictions
         
                 
         total_time = time.time() - total_start
-
-        # if self.params.log_to_wandb:
-        #     wandb.log(logs, step=self.epoch)
         return total_time
     
-
-
 
 
     def save_checkpoint(self, checkpoint_path, model=None):
@@ -352,8 +307,6 @@ class Stepper():
             
 
 
-
-            
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

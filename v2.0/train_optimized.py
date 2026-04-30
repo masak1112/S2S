@@ -34,7 +34,7 @@ from utils.power_spectrum import *
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
     Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
     Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
-from utils.data_loader_multifiles_optimized import get_data_loader
+from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
@@ -168,10 +168,10 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
-    nvtx.range_push("to_ensemble_batch")
+    #nvtx.range_push("to_ensemble_batch")
     data = data.unsqueeze(1).expand(-1, ens_members, *data.shape[1:]).reshape(-1, *data.shape[1:])
     #data = (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1) #old version
-    nvtx.range_pop()  # End to_ensemble_batch
+    #nvtx.range_pop()  # End to_ensemble_batch
     #
     return data
 
@@ -707,13 +707,13 @@ class Trainer():
                     data_time += time.time() - data_start
                     break  
                 else:
-                    nvtx.range_push(f"train_step{self.iters}")  # Start train_one_epoch
+                    #nvtx.range_push(f"train_step{self.iters}")  # Start train_one_epoch
                     self.iters += 1
                     data_start = time.time()
                     
-                    nvtx.range_push("data_preparation") #Start data_preparation
+                    #nvtx.range_push("data_preparation") #Start data_preparation
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
-                    nvtx.range_pop()  # End data_preparation
+                    #nvtx.range_pop()  # End data_preparation
            
                     data_time += time.time() - data_start
                     logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
@@ -742,7 +742,7 @@ class Trainer():
                     #nvtx.range_pop()  # End optimizer step
                     
                     if (i % 20 == 0): #only     log every 20 iterations to reduce overhead
-                        nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
+                        #nvtx.range_push(f"inference step {self.iters}")  # Start update_running_results
                         with torch.no_grad():
                             if self.params.predict_delta:
                                 output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
@@ -770,22 +770,22 @@ class Trainer():
                             if self.world_rank == 0:
                                 #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                                 wandb.log(diagnostic_logs, step= self.iters)
-                        nvtx.range_pop()  # End update_running_results
+                        #nvtx.range_pop()  # End update_running_results
                     
                         # empty_cache() removed: it forces cudaDeviceSynchronize + cudaMemGetInfo
                         # and stalls the GPU pipeline every 20 iterations for no benefit.
                     tr_time += time.time() - tr_start
                 
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                nvtx.range_pop()  # End train_step
+                #nvtx.range_pop()  # End train_step
               
         
         pbar.close()
         # pbar.update(1)
 
-        nvtx.range_push("logging")  # Start logging
+        #nvtx.range_push("logging")  # Start logging
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
-        nvtx.range_pop()  # End logging
+        #nvtx.range_pop()  # End logging
         nvtx.range_pop()  # End train_one_epoch
         return tr_time, data_time, logs
 
