@@ -61,7 +61,7 @@ apptainer exec \
         PYTHONPATH=/home/ucg-aepmn/uchigaco/S2S/v2.0 \
         nsys profile \
             -w true \
-            -t cuda,nvtx,cudnn,cublas \
+            -t cuda,nvtx,cudnn \
             -o /home/ucg-aepmn/uchigaco/S2S/v2.0/HPC_scripts/nsys_report_%q{SLURM_JOB_ID} \
             --force-overwrite=true \
             torchrun \
@@ -71,3 +71,4 @@ apptainer exec \
             --yaml_config=${CONFIG_FILE} \
             --run_num=01_nsys
 "
+ #cublas 

@@ -28,7 +28,7 @@ base_config: &BASE
   mode: 'train'
   num_ensemble_members: 4
   test_iterations: 2200000000
-  checkpoint_path: '/home1/10786/bgong1/WORK/PanguWeather/v2.0/HPC_scripts/results/S2S/2/training_checkpoints/ckpt.tar'
+  checkpoint_path: '/home/ucg-aepmn/uchigaco/S2S/v2.0/HPC_scripts/results/S2S/01_nsys/training_checkpoints/ckpt.tar'
 
 
 
@@ -78,7 +78,7 @@ S2S: &S2S
   calendar: 'standard'
   timedelta_hours: 24
   batch_size: 4
-  max_epochs: 1
+  max_epochs: 2
   has_year_zero: False
   num_levels: 17upper_air_boundary
   #num_levels: 10

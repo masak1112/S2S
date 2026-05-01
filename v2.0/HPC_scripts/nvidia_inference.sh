@@ -67,7 +67,7 @@ apptainer exec \
             torchrun \
             --standalone \
             --nproc_per_node=${NUM_GPUS} \
-            /home/ucg-aepmn/uchigaco/S2S/v2.0/inference.py \
+            /home/ucg-aepmn/uchigaco/S2S/v2.0/inference_optimized.py \
             --yaml_config=${CONFIG_FILE} \
             --run_num=01_nsys
 "
