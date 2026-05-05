@@ -1,12 +1,9 @@
 #!/bin/bash
-#PBS -A UCHI0014
-#PBS -N train_exp03
-#PBS -q main
+#PBS -A UCHI0018
+#PBS -N SI
+#PBS -q develop
 #PBS -l walltime=01:00:00 
-#PBS -l select=1:ncpus=64:ngpus=4
-#PBS -e ucar_exp0804_workflow6_error.txt
-#PBS -o ucar_exp0804_workflow6.out
-#PBS -l gpu_type=a100
+#PBS -l select=1:ncpus=64:ngpus=4:gpu_type=a100
 #export WORLD_SIZE=$((PBS_NUM_NODES * PBS_NUM_PPN))
 #echo "Total tasks: $WORLD_SIZE"
 
@@ -20,7 +17,7 @@ Sqstat -u $USER
 echo nvidia-smi
 
 # Change to working directory
-cd /glade/work/bgong/PanguWeather2/PanguWeather/v2.0
+cd /glade/work/bgong/SI/PanguWeather/v2.0
 
 
 export MPICH_GPU_SUPPORT_ENABLED=1
@@ -62,7 +59,7 @@ else
 fi
 
 #Change config file and run_num here to run different experiments
-CMD="train.py --yaml_config=./config/exp3.yaml --run_num=3_workflow"
+CMD="train_diffusion.py --yaml_config=./config/exp16.yaml --run_num=SI_c1"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"

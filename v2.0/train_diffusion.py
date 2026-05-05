@@ -12,6 +12,7 @@ import time
 import torch
 from networks.diffusion import ConditionalDiffusionModel
 from networks.stochastic_interpolant import StochasticInterpolant
+
 from train import Trainer
 import tqdm
 from collections import OrderedDict
@@ -193,6 +194,7 @@ class DiffusionTrainer(Trainer):
                         diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
                         self.save_checkpoint(diff_path, self.diff_model)
+                        
         # pbar.close()
         # pbar.updac te(1)
         logs ={"train_loss": loss, "epoch": self.epoch}

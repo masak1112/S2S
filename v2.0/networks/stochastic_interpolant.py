@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import numpy as np
-from einops import rearrange
 from functools import partial
 from tqdm.auto import tqdm
 from torch import nn, einsum, optim
@@ -16,7 +15,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from networks.diffusion import ConditionalDiffusionModel
 from networks.diffusion import ConUNet_1degV2
-
+from networks.vae import VAE
 
 
 

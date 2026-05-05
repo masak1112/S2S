@@ -38,7 +38,7 @@ from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
-from networks.pangu_vae import PanguModel_Plasim_VAE
+from networks.vae import VAE
 from utils.utils import log_memory_usage, log_gpu_memory   
 
 logging_utils.config_logger()
@@ -378,7 +378,8 @@ class Trainer():
                 land_mask = None
         
         else:
-            raise Exception("not implemented")
+            land_mask = None
+            #raise Exception("not implemented")
         return mask_bool, land_mask
               
     def get_model(self):
@@ -395,11 +396,11 @@ class Trainer():
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(self.params, 'mask_fill'):
-                    self.model_vae = PanguModel_Plasim_VAE(self.params, land_mask = self.land_mask, mask_fill = self.params.mask_fill).to(self.device)
+                    self.model_vae = VAE(self.params, land_mask = self.land_mask, mask_fill = self.params.mask_fill).to(self.device)
                     self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
                                                mask_fill = self.params.mask_fill).to(self.device)
                 else:
-                    self.model_vae = PanguModel_Plasim_VAE(self.params, land_mask = self.land_mask, 
+                    self.model_vae = VAE(self.params, land_mask = self.land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
                     self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask,
                                                mask_fill = self.train_datasets[0].mask_fill).to(self.device)    
@@ -436,9 +437,9 @@ class Trainer():
 
     def get_optimizer(self):
         if self.params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay, fused=True)
+            self.optimizer = torch.optim.Adam(self.model_det.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay, fused=True)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
+            self.optimizer = torch.optim.Adam(self.model_det.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
         return self.optimizer 
 
 

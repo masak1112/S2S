@@ -94,7 +94,7 @@ class UpProject(nn.Module):
                         if time_emb_dim is not None else None)
 
     def forward(self, x, time_emb=None):  # x: (N,10,1035,384)
-        x = F.interpolate(x, size=(4050, 480), mode="bilinear", align_corners=False)
+        x = F.interpolate(x, size=( 4050, 480), mode="bilinear", align_corners=False)
         x = self.conv(x)
         if self.mlp_t is not None and time_emb is not None:
             time_emb = self.mlp_t(time_emb)
@@ -219,7 +219,7 @@ class ConUNet_1degV2(nn.Module):
 
         self.final_res_block = block_klass(c * 2, c, time_emb_dim=time_dim)
         self.final_conv = nn.Conv2d(c, dim_out, 1)
-        self.project_c = UpProject(dim=10, time_emb_dim=time_dim)
+        self.project_c = UpProject(dim=2, time_emb_dim=time_dim)
 
 
     def forward(self, x, cond, time):
@@ -231,10 +231,11 @@ class ConUNet_1degV2(nn.Module):
         print("Time range from ", time.min().item(), " to ", time.max().item() )
         t = self.time_mlp(time)
         # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
-        cond = self.project_c(cond, t)
-        # print(" cond shape after projection ", cond.shape) # 2, 10, 1035, 384
+        cond = self.project_c(cond, t) 
+        print(" cond shape after projection ", cond.shape) #1, 2, 1035, 384
+        print("x shape after projection ", x.shape) # 2, 10, 1035, 384
         x = torch.cat((x, cond), dim=1)
-        x = self.init_conv(x)
+        x = self.init_conv(x) 
         r = x.clone()
         h = []
         for block1, block2, downsample in self.downs:
@@ -397,11 +398,11 @@ class ConditionalDiffusionModel(nn.Module):
         super().__init__()
         self.kl_weight = kl_weight
         self.params = params
-        self.downscale_resolution = (VAEEncoder.patchembed3d.output_size[0]+1+1*self.params.upper_air_boundary,
-                            (VAEEncoder.patchembed2d.output_size[0] - VAEEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor) \
-                            // self.params.updown_scale_factor + VAEEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor,
-                            (VAEEncoder.patchembed2d.output_size[1] - VAEEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor) \
-                            // self.params.updown_scale_factor + VAEEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor)
+        # self.downscale_resolution = (VAEEncoder.patchembed3d.output_size[0]+1+1*self.params.upper_air_boundary,
+        #                     (VAEEncoder.patchembed2d.output_size[0] - VAEEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor) \
+        #                     // self.params.updown_scale_factor + VAEEncoder.patchembed2d.output_size[0] % self.params.updown_scale_factor,
+        #                     (VAEEncoder.patchembed2d.output_size[1] - VAEEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor) \
+        #                     // self.params.updown_scale_factor + VAEEncoder.patchembed2d.output_size[1] % self.params.updown_scale_factor)
 
 
         self.downscale_resolution_det = (DETEncoder.patchembed3d.output_size[0]+1+1*self.params.upper_air_boundary,
@@ -420,7 +421,7 @@ class ConditionalDiffusionModel(nn.Module):
         self.model_det = DETEncoder
         self.freeze_encoder()
         self._encoder_param_checksums = self._snapshot_encoder_params()
-        self.unet = ConUNet_1degV2(dim_in =10, dim_cond=10, dim_out=10, c = 64,
+        self.unet = ConUNet_1degV2(dim_in =10, dim_cond=2, dim_out=10, c = 64,
                                    c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4)
         
         self.scheduler_diff = DDPMScheduler(T=T)
@@ -481,21 +482,21 @@ class ConditionalDiffusionModel(nn.Module):
         self, surface: torch.Tensor, upper_air: torch.Tensor
     ) -> torch.Tensor:
         """Stochastic VAE encoding -> latent z."""
-        surface_emb = self.encoder.patchembed2d(surface)
-        upper_air_emb = self.encoder.patchembed3d(upper_air)
-        x = torch.cat([upper_air_emb, surface_emb.unsqueeze(2)], dim=2)
+        x = self.encoder._select_surface_component(surface) 
+        z, mean, logvar = self.encoder.encode(x)  #1, 2, 23, 45
+        print("VAE z shape ", z.shape) 
 
-        B, C, Pl, _, _ = x.shape
-        x = x.reshape(B, C, -1).transpose(1, 2)
-        x = self.encoder.layer1(x)
-        x = self.encoder.downsample(x)
-        x = self.encoder.layer2(x)
-        x = self.encoder.layer3(x)
-        x = x.reshape(B, *self.downscale_resolution, -1).permute(0, 4, 1, 2, 3)
-        mu = self.encoder.layer_mu(x)
-        sigma = self.encoder.layer_sigma(x)
-        z = self.encoder.reparameterize(mu, sigma)  # (B, C', Pl, H', W')
-        z = z.permute(0, 2, 3, 4, 1).reshape(B, Pl, -1, 192 * self.params.updown_scale_factor)
+        # B, C, Pl, _, _ = x.shape
+        # x = x.reshape(B, C, -1).transpose(1, 2)
+        # x = self.encoder.layer1(x)
+        # x = self.encoder.downsample(x)
+        # x = self.encoder.layer2(x)
+        # x = self.encoder.layer3(x)
+        # x = x.reshape(B, *self.downscale_resolution, -1).permute(0, 4, 1, 2, 3)
+        # mu = self.encoder.layer_mu(x)
+        # sigma = self.encoder.layer_sigma(x)
+        # z = self.encoder.reparameterize(mu, sigma)  # (B, C', Pl, H', W')
+        # z = z.permute(0, 2, 3, 4, 1).reshape(B, Pl, -1, 192 * self.params.updown_scale_factor)
         return z
 
     def _encode_det(

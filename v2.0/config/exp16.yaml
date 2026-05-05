@@ -28,10 +28,14 @@ base_config: &BASE
   mode: 'train'
   diffusion_model_type: "SI"
   num_ensemble_members: 1
+  component: 8
+  base_channels: 2
+  z_channels: 2
   test_iterations: 10000000000
-  checkpoint_path_vae: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_vae/ckpt.tar"
-  checkpoint_path_det: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_determinstic/ckpt.tar"
-  checkpoint_path_diff: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/16/training_checkpoints/diff_ckpt_115945.tar"
+  checkpoint_path_vae: "/glade/work/bgong/PanguWeather/v2.0/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"
+  checkpoint_path_det: "/glade/work/bgong/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints_determinstic/ckpt.tar"
+  checkpoint_path_diff: "/glade/work/bgong/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/diff_ckpt.tar"
+  # checkpoint_path_diff: "/net/monsoon/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/16/training_checkpoints/diff_ckpt_115945.tar"
   # checkpoint_path_vae: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_vae/ckpt.tar"
   # checkpoint_path_det: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints_determinstic/ckpt.tar"
   # checkpoint_path_diff: "/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/14/training_checkpoints/diff_ckpt.tar"
@@ -39,7 +43,8 @@ base_config: &BASE
 
 S2S: &S2S
   <<: *BASE
-  data_dir : '/net/monsoon/S2S/h5data0'
+  data_dir: '/glade/campaign/univ/uchi0014/yqsun/pangu_s2s/h5data'
+  #data_dir : '/net/monsoon/S2S/h5data0'
   #data_dir: '/project/pedramh/h5data/h5data'
   #data_dir: "/scratch/08198/tg874973/pangu-s2s/h5data"
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
