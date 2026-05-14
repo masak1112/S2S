@@ -43,6 +43,8 @@ class Stepper():
         self.params = params
         self.world_rank = world_rank
         self.async_save = async_save
+        self._first_batch_loaded = False
+        self._first_forward_done = False
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
         if self.async_save:
             logging.info('Asynchronous Saving')
@@ -67,10 +69,14 @@ class Stepper():
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
+        nvtx.range_push("dataloader creation")
+        
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                     year_start=params.val_year_start, 
-                                                                     year_end=params.val_year_end, train=False,
-                                                                     num_inferences = params.num_inferences, validate = True)
+                                                                         year_start=params.val_year_start, 
+                                                                         year_end=params.val_year_end, train=False,
+                                                                         num_inferences = params.num_inferences, validate = True)
+      
+        nvtx.range_pop()
         print(f'Valid dataset length: {len(self.valid_dataset)}')
 
         self.constant_boundary_data = self.valid_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
@@ -126,8 +132,17 @@ class Stepper():
                     break
                 for ens_id in list(range(2)): 
                     nvtx.range_push(f"inference step {i}_ens_{ens_id}")  # Start inference step
-                    val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
-                                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    if (not self._first_batch_loaded) and i == 0 and ens_id == 0:
+                        nvtx.range_push("first batch load")
+                        
+                        val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
+                                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    
+                        nvtx.range_pop()
+                        self._first_batch_loaded = True
+                    else:
+                        val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
+                                    lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
                     # Mahsa: one D2H transfer instead of 4×B .item() syncs
                     times_np = times.cpu().numpy().astype(int)
@@ -149,10 +164,21 @@ class Stepper():
 
                     for time_step in range(self.params['inference_steps']):
                         nvtx.range_push(f"model forward {time_step}")  # Start model forward
-                        val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface,
-                                                                                                self.constant_boundary_data,
-                                                                                                val_varying_boundary_data[:,time_step],
-                                                                                                val_input_upper_air)
+                        if (not self._first_forward_done) and i == 0 and ens_id == 0 and time_step == 0:
+                            nvtx.range_push("first forward pass")
+                            
+                            val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface,
+                                                                                                        self.constant_boundary_data,
+                                                                                                        val_varying_boundary_data[:,time_step],
+                                                                                                        val_input_upper_air)
+                          
+                            nvtx.range_pop()
+                            self._first_forward_done = True
+                        else:
+                            val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface,
+                                                                                                    self.constant_boundary_data,
+                                                                                                    val_varying_boundary_data[:,time_step],
+                                                                                                    val_input_upper_air)
 
 
                         _val_output_diagnostic_gpu.append(val_out_diagnostic.detach())
@@ -230,6 +256,7 @@ class Stepper():
 
 
     def restore_checkpoint(self, checkpoint_path):
+        nvtx.range_push("model/checkpoint load")
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         model_state_dict = checkpoint['model_state']
 
@@ -252,6 +279,8 @@ class Stepper():
         if self.params.resuming and 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         print("Checkpoint restored successfully")
+        
+        nvtx.range_pop()
 
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
@@ -326,7 +355,11 @@ class Stepper():
                 dataset["time"] = dataset["time"].assign_attrs({'long_name': "Forecast Valid Time"})
                 dataset["level"] = dataset["level"].astype('float32').assign_attrs({'long_name': 'Level', 'unit': 'hPa'})
                 #dataset = dataset.chunk({'time': 1, 'level': 1})
-                dataset.to_netcdf(os.path.join(savedir, filename), 'w')
+                nvtx.range_push("file writing/saving")
+                try:
+                    dataset.to_netcdf(os.path.join(savedir, filename), 'w')
+                finally:
+                    nvtx.range_pop()
                 print('Done saving to directiory: ', os.path.join(savedir, filename))
             else:
                 print(f"Skipping saving for start time {start_times[sample]} since it's not 00UTC")
@@ -378,7 +411,11 @@ if __name__ == '__main__':
         params['batch_size'] = params['batch_size']//4'''
     
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        nvtx.range_push("distributed init")
+        try:
+            dist.init_process_group(backend='nccl', init_method='env://')
+        finally:
+            nvtx.range_pop()
         if 'derecho' in str(Path(__file__)):
             local_rank = args.local_rank
         else:
