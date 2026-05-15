@@ -38,11 +38,12 @@ class Stepper():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-    def __init__(self, params, world_rank, async_save=False):
+    def __init__(self, params, world_rank, async_save=False, disable_save=False):
 
         self.params = params
         self.world_rank = world_rank
         self.async_save = async_save
+        self.disable_save = disable_save
         self._first_batch_loaded = False
         self._first_forward_done = False
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
@@ -50,6 +51,10 @@ class Stepper():
             logging.info('Asynchronous Saving')
         else: 
             logging.info('Synchronous Saving')
+        if self.disable_save:
+            logging.info('Saving is disabled for pure inference timing')
+        else:
+            logging.info('Saving is enabled')
         self.run_uuid = str(uuid.uuid4())
         self.has_land = False
         self.has_ocean = False
@@ -117,6 +122,8 @@ class Stepper():
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
         valid_time = self.validate_one_epoch()
+        if self.world_rank == 0:
+            logging.info("Validation loop wall time (seconds): %.3f", valid_time)
         
 
     def validate_one_epoch(self):
@@ -223,6 +230,8 @@ class Stepper():
 
 
                     nvtx.range_pop()  # End inference step
+
+ 
                     nvtx.range_push("saving predictions for inference step {} ensemble member {}".format(i, ens_id))  # Start saving predictions
                     if self._save_executor is not None:
                         f = self._save_executor.submit(
@@ -355,10 +364,12 @@ class Stepper():
                 dataset["time"] = dataset["time"].assign_attrs({'long_name': "Forecast Valid Time"})
                 dataset["level"] = dataset["level"].astype('float32').assign_attrs({'long_name': 'Level', 'unit': 'hPa'})
                 #dataset = dataset.chunk({'time': 1, 'level': 1})
-                nvtx.range_push("file writing/saving")
-                try:
+                if self.disable_save:
+                    nvtx.range_push("saving disabled")
+                    nvtx.range_pop()
+                else:
+                    nvtx.range_push("file writing/saving")
                     dataset.to_netcdf(os.path.join(savedir, filename), 'w')
-                finally:
                     nvtx.range_pop()
                 print('Done saving to directiory: ', os.path.join(savedir, filename))
             else:
@@ -377,6 +388,7 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
+    parser.add_argument("--disable_save", default=False, action="store_true", help="Disable NetCDF saving for profiling")
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
@@ -483,6 +495,6 @@ if __name__ == '__main__':
         with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
     
-    inference = Stepper(params, world_rank, args.async_save)
+    inference = Stepper(params, world_rank, args.async_save, args.disable_save)
     inference.predict()
     logging.info('DONE ---- rank %d' % world_rank)

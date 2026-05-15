@@ -95,12 +95,9 @@ apptainer exec \
             --nproc_per_node=${NUM_GPUS} \
             ../inference_optimized.py \
             --yaml_config=${CONFIG_FILE} \
-            --run_num=01_nsys_dsi
+            --run_num=01_nsys_dsi \
+            --disable_save \
+            --async_save \
 "
 
 
-
-            # 
-            #   
-            #                   echo 'nvidia-smi -q -d NVLINK' &&
-        # nvidia-smi -q -d NVLINK &&

@@ -67,6 +67,7 @@ import cftime
 from datetime import timedelta
 import xarray as xr
 import warnings
+import torch.cuda.nvtx as nvtx
 
 def get_data_given_path(path, variables):
     with h5py.File(path, 'r') as f:
@@ -94,14 +95,15 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
 
-
+    pin_memory = torch.cuda.is_available() and not validate
+    print("Pin memory is set to ", pin_memory)
     dataloader = DataLoader(dataset,
                             batch_size=int(params.batch_size),
                             num_workers=params.num_data_workers,
                             shuffle=False,  # (sampler is None),
                             sampler=sampler,# if train else None,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available(),
+                            pin_memory=pin_memory,
                             # prefetch_factor=2,
                             # persistent_workers=params.num_data_workers > 0 and not params.train_year_to_year,
                     ) #     
@@ -316,13 +318,43 @@ class GetDataset(Dataset):
         return datetime_class_dict[calendar]
 
     def _load_constant_boundary_data(self):
-        constant_boundary_data = torch.from_numpy(self._get_data(self.start_date, variable_list = self.constant_boundary_variables)).to(torch.float32)
+        try:
+            # Prefer the configured start timestamp when the file exists.
+            raw_constant_boundary = self._get_data(self.start_date, variable_list=self.constant_boundary_variables)
+        except FileNotFoundError as exc:
+            # Some datasets are missing index 0000 for a year; fall back to the first
+            # available file in the start year (or the nearest available year).
+            fallback_path = self._get_first_available_data_file(self.start_date.year)
+            logging.warning(
+                "Could not open constant-boundary file for start date %s. "
+                "Falling back to %s. Original error: %s",
+                self.start_date,
+                fallback_path,
+                exc,
+            )
+            raw_constant_boundary = get_data_given_path(fallback_path, self.constant_boundary_variables)
+
+        constant_boundary_data = torch.from_numpy(raw_constant_boundary).to(torch.float32)
         constant_boundary_data = self._fill_mask(constant_boundary_data, self.constant_boundary_variables)
         land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == 'land_sea_mask'].detach())
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
         constant_boundary_std = torch.std(constant_boundary_data, dim=(1,2))
         constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_boundary_std.reshape(-1, 1, 1)
         return constant_boundary_data, land_mask
+
+    def _get_first_available_data_file(self, preferred_year):
+        preferred_pattern = join(self.data_dir, f"{preferred_year}_*.h5")
+        preferred_files = sorted(glob.glob(preferred_pattern))
+        if preferred_files:
+            return preferred_files[0]
+
+        any_files = sorted(glob.glob(join(self.data_dir, "*.h5")))
+        if any_files:
+            return any_files[0]
+
+        raise FileNotFoundError(
+            f"No HDF5 files found under data directory: {self.data_dir}"
+        )
 
     def load_mean_std(self, mean_file, std_file, datavars, upper_air = True):
         if upper_air:
@@ -431,6 +463,8 @@ class GetDataset(Dataset):
 
 
     def __getitem__(self, index):
+        nvtx.range_push(f"dataset.__getitem__[{index}]")
+    
         #print('Loaded Boundary Data')
         #self.dates = self._get_dates(hour_step=params.timedelta_hours)
         #self.data_dss = self._load_data(initial=False)
@@ -452,7 +486,7 @@ class GetDataset(Dataset):
                 upper_air_t_1, surface_t_1, diagnostic_t_1 = self._reshape_and_mask_variables(data_out, out = True)
             else:
                 upper_air_t_1, surface_t_1 = self._reshape_and_mask_variables(data_out, out = True)
-            
+
             if self.params.predict_delta:
                 surface_t_1 = surface_t_1 - surface_t
                 upper_air_t_1 = upper_air_t_1 - upper_air_t
@@ -480,14 +514,16 @@ class GetDataset(Dataset):
                 else:
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
                 upper_air_t = upper_air_t + upper_air_t_noise
-        
+
         # Condition for autoregression
         elif lead_times:
 
             start_time = self.start_date + timedelta(hours=self.dates[index])
 
             # Load initial conditions
+            nvtx.range_push("getitem: initial _get_data")
             data_in = self._get_data(start_time, out = False)
+            nvtx.range_pop()
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
             else:
@@ -497,12 +533,20 @@ class GetDataset(Dataset):
             boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
+            nvtx.range_push("getitem: varying boundary load loop")
+            
             varying_boundary_data.extend([self._fill_mask(\
-                torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+                    torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+    
+            nvtx.range_pop()
+
+            nvtx.range_push("getitem: varying boundary transform/stack")
+    
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data_i) for varying_boundary_data_i in varying_boundary_data], dim=0)
+       
+            nvtx.range_pop()
 
-
-            if self.validate: 
+            if self.validate:
                 # Load targets for each time step up to the maximum lead time
                 targets_surface = []
                 targets_upper_air = []
@@ -515,6 +559,8 @@ class GetDataset(Dataset):
                 # Iterate over each time step up to the maximum lead time
                 max_lead_time = lead_times[-1]
 
+                nvtx.range_push("getitem: validation target load loop")
+              
                 for step in range(1, max_lead_time + 1):
                     target_time = start_time + timedelta(hours = self.timedelta_hours * step)
                     raw_target_data = self._get_data(target_time, out = True)
@@ -524,7 +570,7 @@ class GetDataset(Dataset):
                         targets_diagnostic.append(diagnostic_target)
                     else:
                         upper_air_target, surface_target = self._reshape_and_mask_variables(raw_target_data, out = True)
-        
+
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
 
@@ -540,13 +586,17 @@ class GetDataset(Dataset):
 
                         targets_delta_surface.append(surface_delta_target)
                         targets_delta_upper_air.append(upper_air_delta_target)
+          
+                nvtx.range_pop()
 
+                nvtx.range_push("getitem: transform/stack before return")
+          
                 for step in range(0, max_lead_time):
                     targets_surface[step] = self.surface_transform(targets_surface[step])
                     targets_upper_air[step] = self.upper_air_transform(targets_upper_air[step])
                     if len(self.diagnostic_variables) > 0:
                         targets_diagnostic[step] = self.diagnostic_transform(targets_diagnostic[step])
-                
+
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
 
@@ -557,7 +607,8 @@ class GetDataset(Dataset):
                 if self.params.predict_delta:
                     targets_delta_surface = torch.stack(targets_delta_surface, dim=0)
                     targets_delta_upper_air = torch.stack(targets_delta_upper_air, dim=0)
-                    
+             
+                nvtx.range_pop()
 
         else:
             start_time = self.start_date + timedelta(hours=self.dates[index])
@@ -615,6 +666,7 @@ class GetDataset(Dataset):
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data
             else:
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
+        nvtx.range_pop()
             
 def get_infer_data(params, files_pattern, distributed, year_start, year_end, step=100, num_inferences = 0, validate = False):
 
