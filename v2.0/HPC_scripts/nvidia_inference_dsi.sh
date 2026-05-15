@@ -6,11 +6,17 @@
 #SBATCH --time=72:00:00
 #SBATCH --partition=Monsoon
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4 
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=32 
+
 #SBATCH --gres=gpu:h200:4
 #SBATCH --mail-user=gongbing@uchicago.edu
 ##$SBATCH --gres=gpu:a40:4 #for development
 #SBATCH --mem=1000G 
+echo "SLRUM_CPUS_ON_NODE: $SLURM_CPUS_ON_NODE"
+echo "SLRUM_CPUS_PER_TASK: $SLURM_CPUS_PER_TASK"
+echo "SLRUM_NTASKS_PER_NODE: $SLURM_NTASKS_PER_NODE"
+echo "SLRUM_NTASKS: $SLURM_NTASKS"
 
 # Enable GPU support for MPI
 export MPICH_GPU_SUPPORT_ENABLED=1
