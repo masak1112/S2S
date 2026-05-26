@@ -200,7 +200,22 @@ class Stepper():
                     _val_output_upper_air_gpu  = torch.stack(_val_output_upper_air_gpu,  dim=1)
                     _val_output_diagnostic_gpu = torch.stack(_val_output_diagnostic_gpu, dim=1)
 
+                    if self.disable_save:
+                        nvtx.range_push("saving disabled")
+                        nvtx.range_pop()
+                        nvtx.range_pop()  # End inference step
+                        continue
+                    
+                    print("Completed GPU inference for all time steps, starting data transfer and saving...")
                     B, T = _val_output_surface_gpu.shape[:2]
+
+                    # Mahsa: one D2H transfer instead of 4×B .item() syncs
+                    times_np = times.cpu().numpy().astype(int)
+                    start_times = [
+                        self.valid_dataset.datetime_class(
+                            times_np[idx, 0], times_np[idx, 1], times_np[idx, 2], hour=times_np[idx, 3])
+                        for idx in range(times_np.shape[0])
+                    ]
 
                     surf_t = self.valid_dataset.surface_inv_transform(
                         _val_output_surface_gpu.view(B * T, *_val_output_surface_gpu.shape[2:]))
@@ -231,7 +246,6 @@ class Stepper():
 
                     nvtx.range_pop()  # End inference step
 
- 
                     nvtx.range_push("saving predictions for inference step {} ensemble member {}".format(i, ens_id))  # Start saving predictions
                     if self._save_executor is not None:
                         f = self._save_executor.submit(

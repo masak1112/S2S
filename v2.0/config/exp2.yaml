@@ -5,7 +5,7 @@ base_config: &BASE
   lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
-  num_data_workers: 0
+  num_data_workers: 8
   oc_pct_start: 0.1
   oc_div_factor: 1e5
   oc_final_div_factor: 0.00025

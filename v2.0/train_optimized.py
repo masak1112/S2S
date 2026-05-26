@@ -1661,9 +1661,10 @@ if __name__ == '__main__':
 
 
     ##Check GPU memory 
-    print(torch.cuda.get_device_name(0))
-    print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
-    print(f"Memory Cached: {torch.cuda.memory_reserved(0)/1024**2:.2f} MB")
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    print("local rank : ", torch.cuda.get_device_name(local_rank))
+    print(f"Memory Allocated: {torch.cuda.memory_allocated(local_rank)/1024**2:.2f} MB")
+    print(f"Memory Cached: {torch.cuda.memory_reserved(local_rank)/1024**2:.2f} MB")
 
 
     if 'WORLD_SIZE' in os.environ:
