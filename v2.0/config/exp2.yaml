@@ -58,10 +58,10 @@ S2S: &S2S
               'sea_ice_cover': 0.,
               'snow_depth': 0.}
   mask_output: False
-  train_year_start: 2020
-  train_year_end: 2021
-  val_year_start: 2020
-  val_year_end: 2021
+  train_year_start: 2021
+  train_year_end: 2022
+  val_year_start: 2021
+  val_year_end: 2022
   data_timedelta_hours: 6
   surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
   surface_std: 'pangu_s2s_1979-2018_surface_std.nc'

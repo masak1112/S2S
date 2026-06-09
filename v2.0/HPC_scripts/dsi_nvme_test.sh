@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=monsoon_storage_inference  
+#SBATCH --job-name=inference    
 #SBATCH --output=dsi_inference_%x_%j.out
 #SBATCH --error=dsi_inference_%x_%j.err
 #SBATCH --time=72:00:00
@@ -8,10 +8,43 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32 
-#SBATCH --gres=gpu:h200:4
+#SBATCH --gres=gpu:h200:4,local:disk:1000G
 #SBATCH --mail-user=gongbing@uchicago.edu
-##$SBATCH --gres=gpu:a40:4 #for development
-#SBATCH --mem=1000G 
+
+#echo $SLURM_NTASKS   # WORLD_SIZE 
+#echo $SLURM_PROCID   # WORLD_RANK
+#echo $SLURM_LOCALID  # LOCAL_RANK
+# export MPICH_GPU_SUPPORT_ENABLED=1
+# ###for local storage#####
+
+cd /local/scratch
+
+user="$USER"
+echo "$USER"
+id="$SLURM_JOB_ID"
+echo "$SLURM_JOB_ID"
+
+dir="/local/scratch/${user}_${id}"
+cd "$dir"
+cp /net/monsoon/S2S/2021_dataset.zip . 
+unzip 2021_dataset.zip
+data_dir="${dir}/net/monsoon/S2S/h5data0"
+cp /net/monsoon/S2S/h5data0/*nc ${data_dir}
+# # cp /net/monsoon/S2S/2016_dataset.zip .
+# cp /net/monsoon/S2S/stats.zip .
+
+# # unzip 2016_dataset.zip
+# unzip stats.zip 
+
+
+# rm 2015_dataset.zip
+# # rm 2016_dataset.zip
+# rm stats.zip 
+
+
+# ls -l
+
+
 echo "SLRUM_CPUS_ON_NODE: $SLURM_CPUS_ON_NODE"
 echo "SLRUM_CPUS_PER_TASK: $SLURM_CPUS_PER_TASK"
 echo "SLRUM_NTASKS_PER_NODE: $SLURM_NTASKS_PER_NODE"
@@ -55,7 +88,7 @@ export NUM_GPUS=$(nvidia-smi -L | wc -l)
 echo "NUM_OF_NODES= ${SLURM_JOB_NUM_NODES} NUM_GPUS= ${NUM_GPUS} JOB_ID= ${SLURM_JOB_ID}"
 
 # Configuration
-CONFIG_FILE=../config/exp2.yaml
+CONFIG_FILE=/net/monsoon/bing/Pangu_test/S2S/v2.0/config/exp2.yaml
 
 
 # NGC credentials — set before pulling (requires NGC API key)
@@ -88,7 +121,7 @@ apptainer exec \
         (nvidia-smi -q -d NVLINK || nvidia-smi -q | sed -n '/NVLINK/,+120p' || true) &&
         echo 'NCCL all-reduce bandwidth' &&
         all_reduce_perf -b 8M -e 8G -f 2 -g 4 &&
-        PYTHONPATH=bing/Pangu_test/S2S/v2.0 \
+        PYTHONPATH=/net/monsoon/bing/Pangu_test/S2S/v2.0 \
         NCCL_IB_DISABLE=1 \
         nsys profile \
             -w true \
@@ -102,6 +135,9 @@ apptainer exec \
             --yaml_config=${CONFIG_FILE} \
             --run_num=01_nsys_dsi \
             --async_save \
+            --enable_nvme \
+            --nvme_dir=${dir}
 "
 
-        # --disable_save \
+            # --disable_save \
+
