@@ -79,7 +79,8 @@ class Stepper():
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                          year_start=params.val_year_start, 
                                                                          year_end=params.val_year_end, train=False,
-                                                                         num_inferences = params.num_inferences, validate = True)
+                                                                         num_inferences = params.num_inferences, validate = True,
+                                                                         load_targets = False)
       
         nvtx.range_pop()
         print(f'Valid dataset length: {len(self.valid_dataset)}')
@@ -134,41 +135,53 @@ class Stepper():
         _diag_cpu = None
 
         with torch.inference_mode(), torch.amp.autocast('cuda', enabled=self.params.enable_amp, dtype=torch.bfloat16):
-            for i, data in enumerate(self.valid_data_loader, 0):
-                if i > 5:
+            data_iter = iter(self.valid_data_loader)
+            for i in range(6):
+                nvtx.range_push(f"dataloader next {i}")
+                try:
+                    data = next(data_iter)
+                except StopIteration:
+                    nvtx.range_pop()
                     break
+                nvtx.range_pop()
+
+                if len(data) == 4:
+                    surface_cpu, upper_air_cpu, varying_boundary_cpu, times = data
+                else:
+                    surface_cpu, upper_air_cpu, _, _, _, varying_boundary_cpu, times = data
+
+                nvtx.range_push("first batch load" if not self._first_batch_loaded else "batch H2D transfer")
+                batch_input_surface = surface_cpu.to(self.device, dtype=torch.float32, non_blocking=True)
+                batch_input_upper_air = upper_air_cpu.to(self.device, dtype=torch.float32, non_blocking=True)
+                batch_varying_boundary_data = varying_boundary_cpu.to(self.device, dtype=torch.float32, non_blocking=True)
+                nvtx.range_pop()
+                self._first_batch_loaded = True
+
+                times_np = times.numpy().astype(int)
+                start_times = [
+                    self.valid_dataset.datetime_class(
+                        times_np[idx, 0], times_np[idx, 1], times_np[idx, 2], hour=times_np[idx, 3])
+                    for idx in range(times_np.shape[0])
+                ]
+                save_mask = [start_time.strftime('%H') == '00' for start_time in start_times]
+                should_save_outputs = (not self.disable_save) and any(save_mask)
+
                 for ens_id in list(range(2)): 
                     nvtx.range_push(f"inference step {i}_ens_{ens_id}")  # Start inference step
-                    if (not self._first_batch_loaded) and i == 0 and ens_id == 0:
-                        nvtx.range_push("first batch load")
-                        
-                        val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
-                                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    
-                        nvtx.range_pop()
-                        self._first_batch_loaded = True
-                    else:
-                        val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
-                                    lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-
-                    # Mahsa: one D2H transfer instead of 4×B .item() syncs
-                    times_np = times.cpu().numpy().astype(int)
-                    start_times = [
-                        self.valid_dataset.datetime_class(
-                            times_np[idx, 0], times_np[idx, 1], times_np[idx, 2], hour=times_np[idx, 3])
-                        for idx in range(times_np.shape[0])
-                    ]
+                    val_input_surface = batch_input_surface
+                    val_input_upper_air = batch_input_upper_air
+                    val_varying_boundary_data = batch_varying_boundary_data
 
 
-                    val_output_diagnostic = torch.zeros((val_input_surface.shape[0],
-                                                        self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                        dtype = torch.float32, device=self.device)
+                    if should_save_outputs:
+                        val_output_diagnostic = torch.zeros((val_input_surface.shape[0],
+                                                            self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                            dtype = torch.float32, device=self.device)
+                        _val_output_surface_gpu = [val_input_surface.detach()]
+                        _val_output_upper_air_gpu = [val_input_upper_air.detach()]
+                        _val_output_diagnostic_gpu = [val_output_diagnostic]
 
-                    _val_output_surface_gpu  = [val_input_surface.detach()] # initialize with input surface for diagnostic variables
-                    _val_output_upper_air_gpu = [val_input_upper_air.detach()] # initialize with input upper air for surface variables
-                    _val_output_diagnostic_gpu = [val_output_diagnostic]
-
-
+                    nvtx.range_push(f"model rollout {i}_ens_{ens_id}")
                     for time_step in range(self.params['inference_steps']):
                         nvtx.range_push(f"model forward {time_step}")  # Start model forward
                         if (not self._first_forward_done) and i == 0 and ens_id == 0 and time_step == 0:
@@ -188,35 +201,31 @@ class Stepper():
                                                                                                     val_input_upper_air)
 
 
-                        _val_output_diagnostic_gpu.append(val_out_diagnostic.detach())
-                        _val_output_surface_gpu.append(val_out_surface.detach())
-                        _val_output_upper_air_gpu.append(val_out_upper_air.detach())
+                        if should_save_outputs:
+                            _val_output_diagnostic_gpu.append(val_out_diagnostic.detach())
+                            _val_output_surface_gpu.append(val_out_surface.detach())
+                            _val_output_upper_air_gpu.append(val_out_upper_air.detach())
 
                         val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                         nvtx.range_pop()  # End model forward
+                    nvtx.range_pop()  # End model rollout
 
-
-                    _val_output_surface_gpu = torch.stack(_val_output_surface_gpu, dim=1)
-                    _val_output_upper_air_gpu  = torch.stack(_val_output_upper_air_gpu,  dim=1)
-                    _val_output_diagnostic_gpu = torch.stack(_val_output_diagnostic_gpu, dim=1)
-
-                    if self.disable_save:
-                        nvtx.range_push("saving disabled")
+                    if not should_save_outputs:
+                        nvtx.range_push("saving disabled" if self.disable_save else "skip save for non-00UTC start")
                         nvtx.range_pop()
                         nvtx.range_pop()  # End inference step
                         continue
+
+                    nvtx.range_push("output stack")
+                    _val_output_surface_gpu = torch.stack(_val_output_surface_gpu, dim=1)
+                    _val_output_upper_air_gpu  = torch.stack(_val_output_upper_air_gpu,  dim=1)
+                    _val_output_diagnostic_gpu = torch.stack(_val_output_diagnostic_gpu, dim=1)
+                    nvtx.range_pop()
                     
                     print("Completed GPU inference for all time steps, starting data transfer and saving...")
                     B, T = _val_output_surface_gpu.shape[:2]
 
-                    # Mahsa: one D2H transfer instead of 4×B .item() syncs
-                    times_np = times.cpu().numpy().astype(int)
-                    start_times = [
-                        self.valid_dataset.datetime_class(
-                            times_np[idx, 0], times_np[idx, 1], times_np[idx, 2], hour=times_np[idx, 3])
-                        for idx in range(times_np.shape[0])
-                    ]
-
+                    nvtx.range_push("postprocess and D2H")
                     surf_t = self.valid_dataset.surface_inv_transform(
                         _val_output_surface_gpu.view(B * T, *_val_output_surface_gpu.shape[2:]))
                     upper_t = self.valid_dataset.upper_air_inv_transform(
@@ -243,6 +252,7 @@ class Stepper():
                     val_output_upper_air = _upper_cpu.numpy().reshape(B, T, *_val_output_upper_air_gpu.shape[2:]).copy()
                     val_output_diagnostic = _diag_cpu.numpy().reshape(B, T, *_val_output_diagnostic_gpu.shape[2:]).copy()
 
+                    nvtx.range_pop()
 
                     nvtx.range_pop()  # End inference step
 
@@ -261,6 +271,9 @@ class Stepper():
         for f in self._pending_saves:
             f.result()
         self._pending_saves.clear()
+        if self._save_executor is not None:
+            self._save_executor.shutdown(wait=True)
+            self._save_executor = None
 
         total_time = time.time() - total_start
         return total_time
@@ -278,9 +291,7 @@ class Stepper():
                     'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
-    def restore_checkpoint(self, checkpoint_path):
-        nvtx.range_push("model/checkpoint load")
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+    def _apply_checkpoint_state(self, checkpoint):
         model_state_dict = checkpoint['model_state']
 
         # Remove 'module.' prefix if it exists
@@ -299,11 +310,38 @@ class Stepper():
         self.startEpoch = checkpoint['epoch']
         print('START EPOCH:', self.startEpoch)
         # Restore optimizer state if resuming
-        if self.params.resuming and 'optimizer_state_dict' in checkpoint:
+        if self.params.resuming and hasattr(self, 'optimizer') and 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    def restore_checkpoint(self, checkpoint_path):
+        if dist.is_initialized():
+            nvtx.range_push("model/checkpoint load rank0")
+            if self.world_rank == 0:
+                checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+                self._apply_checkpoint_state(checkpoint)
+
+            meta_device = next(self.model.parameters()).device
+            if self.world_rank == 0:
+                checkpoint_meta = torch.tensor([self.iters, self.startEpoch], dtype=torch.long, device=meta_device)
+            else:
+                checkpoint_meta = torch.zeros(2, dtype=torch.long, device=meta_device)
+            dist.broadcast(checkpoint_meta, src=0)
+            if self.world_rank != 0:
+                self.iters = int(checkpoint_meta[0].item())
+                self.startEpoch = int(checkpoint_meta[1].item())
+            nvtx.range_pop()
+
+            nvtx.range_push("model/checkpoint broadcast")
+            for tensor in list(self.model.parameters()) + list(self.model.buffers()):
+                dist.broadcast(tensor.data, src=0)
+            nvtx.range_pop()
+        else:
+            nvtx.range_push("model/checkpoint load")
+            checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+            self._apply_checkpoint_state(checkpoint)
+            nvtx.range_pop()
+
         print("Checkpoint restored successfully")
-        
-        nvtx.range_pop()
 
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
@@ -383,7 +421,7 @@ class Stepper():
                     nvtx.range_pop()
                 else:
                     nvtx.range_push("file writing/saving")
-                    dataset.to_netcdf(os.path.join(savedir, filename), 'w')
+                    dataset.to_netcdf(os.path.join(savedir, filename), mode='w', engine='h5netcdf')
                     nvtx.range_pop()
                 print('Done saving to directiory: ', os.path.join(savedir, filename))
             else:
@@ -481,7 +519,7 @@ if __name__ == '__main__':
     
     if args.enable_nvme:
         print(f"NVMe enabled. Predictions will be saved to {args.nvme_dir}")
-        expDir = os.path.join("/net/monsoon/bing/Pangu_test/S2S/v2.0/HPC_scripts/results", args.config, str(args.run_num))
+        expDir = os.path.join("/net/monsoon/mahsa/Pangu/S2S/v2.0/HPC_scripts/results", args.config, str(args.run_num))
     
     else:
         expDir = os.path.join(os.getcwd(), 'results', args.config, str(args.run_num))
@@ -532,4 +570,9 @@ if __name__ == '__main__':
     
     inference = Stepper(params, world_rank, args.async_save, args.disable_save)
     inference.predict()
+    if dist.is_initialized():
+        nvtx.range_push("distributed shutdown")
+        dist.barrier()
+        dist.destroy_process_group()
+        nvtx.range_pop()
     logging.info('DONE ---- rank %d' % world_rank)

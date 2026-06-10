@@ -88,15 +88,19 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, load_targets = True):
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, load_targets)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
 
-    pin_memory = torch.cuda.is_available() and not validate
+    pin_memory = torch.cuda.is_available() and (not validate or not load_targets)
     print("Pin memory is set to ", pin_memory)
+    dataloader_kwargs = {}
+    if params.num_data_workers > 0:
+        dataloader_kwargs["prefetch_factor"] = 1 if validate and not load_targets else 2
+        dataloader_kwargs["persistent_workers"] = False
     dataloader = DataLoader(dataset,
                             batch_size=int(params.batch_size),
                             num_workers=params.num_data_workers,
@@ -104,8 +108,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
                             sampler=sampler,# if train else None,
                             drop_last=True,
                             pin_memory=pin_memory,
-                            # prefetch_factor=2,
-                            # persistent_workers=params.num_data_workers > 0 and not params.train_year_to_year,
+                            **dataloader_kwargs,
                     ) #     
 
     if train:
@@ -115,7 +118,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False):
+    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, load_targets = True):
         self.params = params
         self.data_dir = data_dir
         self.train = train
@@ -123,6 +126,7 @@ class GetDataset(Dataset):
             self.validate = validate
         else:
             self.validate = False
+        self.load_targets = load_targets
         if not self.train and not self.params.forecast_lead_times:
             self.params['forecast_lead_times'] = [1]
         self.epsilon_factor = self.params.epsilon_factor
@@ -546,7 +550,7 @@ class GetDataset(Dataset):
        
             nvtx.range_pop()
 
-            if self.validate:
+            if self.validate and self.load_targets:
                 # Load targets for each time step up to the maximum lead time
                 targets_surface = []
                 targets_upper_air = []
@@ -609,6 +613,9 @@ class GetDataset(Dataset):
                     targets_delta_upper_air = torch.stack(targets_delta_upper_air, dim=0)
              
                 nvtx.range_pop()
+            else:
+                surface_t = self.surface_transform(surface_t)
+                upper_air_t = self.upper_air_transform(upper_air_t)
 
         else:
             start_time = self.start_date + timedelta(hours=self.dates[index])
@@ -647,6 +654,8 @@ class GetDataset(Dataset):
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
         ### ERROR - Need to have data loader return times for validation
         elif self.validate and lead_times:
+            if not self.load_targets:
+                return surface_t, upper_air_t, varying_boundary_data, start_time_tensor
             if self.params.predict_delta:
                 if len(self.diagnostic_variables) > 0:
                     return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, targets_delta_surface, targets_delta_upper_air, \
