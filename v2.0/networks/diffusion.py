@@ -155,6 +155,50 @@ class PreNorm(nn.Module):
     def forward(self, x):
         x = self.norm(x)
         return self.fn(x)
+
+
+class CrossAttentionConditionFuse(nn.Module):
+    """Fuse conditioning feature maps into model activations with pooled cross-attention."""
+    def __init__(self, dim_x, dim_cond, heads=4, dim_head=32, pool_size=(8, 8)):
+        super().__init__()
+        inner_dim = heads * dim_head
+        self.heads = heads
+        self.dim_head = dim_head
+        self.scale = dim_head ** -0.5
+        self.pool_size = pool_size
+
+        self.to_q = nn.Conv2d(dim_x, inner_dim, kernel_size=1, bias=False)
+        self.to_k = nn.Conv2d(dim_cond, inner_dim, kernel_size=1, bias=False)
+        self.to_v = nn.Conv2d(dim_cond, inner_dim, kernel_size=1, bias=False)
+        self.to_out = nn.Conv2d(inner_dim, dim_x, kernel_size=1)
+        self.norm_x = nn.GroupNorm(1, dim_x)
+        self.norm_c = nn.GroupNorm(1, dim_cond)
+        self.gate = nn.Parameter(torch.tensor(0.0))
+
+    def forward(self, x, cond):
+        b, _, h, w = x.shape
+
+        x_pooled = F.adaptive_avg_pool2d(self.norm_x(x), self.pool_size)
+        c_pooled = F.adaptive_avg_pool2d(self.norm_c(cond), self.pool_size)
+
+        q = self.to_q(x_pooled)
+        k = self.to_k(c_pooled)
+        v = self.to_v(c_pooled)
+
+        q_h, q_w = q.shape[-2], q.shape[-1]
+        n_tokens = q_h * q_w
+        q = q.view(b, self.heads, self.dim_head, n_tokens).permute(0, 1, 3, 2)
+        k = k.view(b, self.heads, self.dim_head, n_tokens).permute(0, 1, 3, 2)
+        v = v.view(b, self.heads, self.dim_head, n_tokens).permute(0, 1, 3, 2)
+
+        attn = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+        attn = attn.softmax(dim=-1)
+        out = torch.matmul(attn, v)
+
+        out = out.permute(0, 1, 3, 2).contiguous().view(b, self.heads * self.dim_head, q_h, q_w)
+        out = self.to_out(out)
+        out = F.interpolate(out, size=(h, w), mode="bilinear", align_corners=False)
+        return x + self.gate * out
     
 
 class ConUNet_1degV2(nn.Module):
@@ -163,9 +207,8 @@ class ConUNet_1degV2(nn.Module):
                     is_guide=False, drop_prob=0.1, dropout=0.1):
         super().__init__()
     
-        self.init_conv = nn.Conv2d((dim_in+dim_cond), c, 1, padding=0)
+        self.init_conv = nn.Conv2d(dim_in, c, 1, padding=0)
         dims = [c*x for x in c_mults]
-        self.is_guide = is_guide
         self.drop_prob = drop_prob
         in_out = list(zip(dims[:-1], dims[1:]))
         block_klass = partial(ResnetBlock, groups=resnet_block_groups, dropout=dropout)
@@ -219,23 +262,22 @@ class ConUNet_1degV2(nn.Module):
 
         self.final_res_block = block_klass(c * 2, c, time_emb_dim=time_dim)
         self.final_conv = nn.Conv2d(c, dim_out, 1)
-        self.project_c = UpProject(dim=2, time_emb_dim=time_dim)
+        self.cond_to_c = nn.Conv2d(dim_cond, c, kernel_size=1)
+        self.cross_attn_in = CrossAttentionConditionFuse(dim_x=c, dim_cond=c, heads=4, dim_head=32, pool_size=(8, 8))
+        self.cond_to_mid = nn.Conv2d(c, mid_dim, kernel_size=1)
+        self.cross_attn_mid = CrossAttentionConditionFuse(dim_x=mid_dim, dim_cond=mid_dim, heads=4, dim_head=32, pool_size=(8, 8))
 
 
     def forward(self, x, cond, time):
-        if self.is_guide and self.training: # whether use the classifier-free guidance
-            context_mask = torch.bernoulli(torch.full(cond.shape, self.drop_prob, device=cond.device))
-            context_mask = 1 - context_mask  
-            cond = cond * context_mask
         time = time * 1000
-        print("Time range from ", time.min().item(), " to ", time.max().item() )
         t = self.time_mlp(time)
         # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
-        cond = self.project_c(cond, t) 
-        print(" cond shape after projection ", cond.shape) #1, 2, 1035, 384
-        print("x shape after projection ", x.shape) # 2, 10, 1035, 384
-        x = torch.cat((x, cond), dim=1)
-        x = self.init_conv(x) 
+        cond_c = self.cond_to_c(cond)
+        # print("cond_c  shape", cond_c.shape) # 2, 64, 1035, 384
+        # print(" cond shape after projection ", cond.shape) #1, 2, 1035, 384
+        # print("x shape after projection ", x.shape) # 2, 10, 1035, 384
+        x = self.init_conv(x)
+        x = self.cross_attn_in(x, cond_c)
         r = x.clone()
         h = []
         for block1, block2, downsample in self.downs:
@@ -252,6 +294,8 @@ class ConUNet_1degV2(nn.Module):
             x = downsample(x)
 
         x = self.mid_block1(x, t)
+        cond_mid = self.cond_to_mid(cond_c)
+        x = self.cross_attn_mid(x, cond_mid)
         x = self.mid_block2(x, t)
 
         for block1, block2, upsample in self.ups:
@@ -485,18 +529,6 @@ class ConditionalDiffusionModel(nn.Module):
         x = self.encoder._select_surface_component(surface) 
         z, mean, logvar = self.encoder.encode(x)  #1, 2, 23, 45
         print("VAE z shape ", z.shape) 
-
-        # B, C, Pl, _, _ = x.shape
-        # x = x.reshape(B, C, -1).transpose(1, 2)
-        # x = self.encoder.layer1(x)
-        # x = self.encoder.downsample(x)
-        # x = self.encoder.layer2(x)
-        # x = self.encoder.layer3(x)
-        # x = x.reshape(B, *self.downscale_resolution, -1).permute(0, 4, 1, 2, 3)
-        # mu = self.encoder.layer_mu(x)
-        # sigma = self.encoder.layer_sigma(x)
-        # z = self.encoder.reparameterize(mu, sigma)  # (B, C', Pl, H', W')
-        # z = z.permute(0, 2, 3, 4, 1).reshape(B, Pl, -1, 192 * self.params.updown_scale_factor)
         return z
 
     def _encode_det(
@@ -508,11 +540,12 @@ class ConditionalDiffusionModel(nn.Module):
         x = torch.cat([upper_air_emb, surface_emb.unsqueeze(2)], dim=2)
         B, C, Pl, _, _ = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
+        skip = x
         x = self.model_det.downsample(x)
         x = self.model_det.layer2(x, train)
         x = self.model_det.layer3(x, train)
         x = x.reshape(B, Pl, -1, 240 * self.params.updown_scale_factor)
-        return x
+        return x, skip
 
     def plot_noise_comparison(
         self,
@@ -582,7 +615,7 @@ class ConditionalDiffusionModel(nn.Module):
 
         # Encode stochastic condition (VAE) and deterministic features
         z = self._encode_vae(surface, upper_air_in)
-        x = self._encode_det(surface, upper_air_in, train)
+        x, skip = self._encode_det(surface, upper_air_in, train)
 
         # Sample timestep and forward-diffuse x
         t = torch.randint(0, self.scheduler_diff.T, (B,), device=device)
@@ -689,8 +722,7 @@ class ConditionalDiffusionModel(nn.Module):
         
         if torch.isnan(x).any():
             print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
-        else:
-            print("[NaN check] x before diffusion : no NaN")     
+  
             
         x = self.generate(
             model_diff=self.unet,
@@ -704,7 +736,7 @@ class ConditionalDiffusionModel(nn.Module):
             print(f"[NaN check] x has NaN: {torch.isnan(x).sum().item()} NaNs")
         else:
             print("[NaN check] x : no NaN")
-        print("x shape after diffusion",x.shape)        
+          
         x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
         
         ######## DETERMINISTIC DECODER START ######
@@ -718,8 +750,7 @@ class ConditionalDiffusionModel(nn.Module):
         output_surface = output_2D[:, self.surface_prognostic_idxs]
         if torch.isnan(output_surface).any():
             print(f"[NaN check] output_surface (after patchrecovery2d) has NaN: {torch.isnan(output_surface).sum().item()} NaNs")
-        else:
-            print("[NaN check] output_surface (after patchrecovery2d): no NaN")
+   
 
         output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(

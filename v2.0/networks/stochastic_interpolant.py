@@ -162,41 +162,31 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         device = surface.device
         ts  = lower + (upper - lower)*torch.rand(size=(B,), device=device)
 
-        
         # Encode stochastic condition (VAE) and deterministic features
         z = self._encode_vae(surface, upper_air_in)
-        x = self._encode_det(surface, upper_air_in, train)
+        x, skip = self._encode_det(surface, upper_air_in, train=True)
         
-    
         #source and target distributions
         base = self.sample_from_source(x, n_samples=B, reparam=True)
         assert base.shape == x.shape, f"Expected shape of base noise to match x. Got {base.shape} and {x.shape}."
-        print("base range from ", base.min().item(), " to ", base.max().item())
+    
         
         target = x  
-        print("target range from ", target.min().item(), " to ", target.max().item())
-        
         It = self.I(x0=base, x1=target, t=ts)
-        print("It range from ", It.min().item(), " to ", It.max().item())
         dIdt = self.dIdt(x0=base, x1=target, t=ts)
-        print("dIdt range from ", dIdt.min().item(), " to ", dIdt.max().item())
         It_p = It + self.gamma(ts)*torch.randn_like(It).to(device)
         It_m = It - self.gamma(ts)*torch.randn_like(It).to(device)
-        print("It_p range from ", It_p.min().item(), " to ", It_p.max().item())
-        print("It_m range from ", It_m.min().item(), " to ", It_m.max().item())
+   
         assert not torch.isnan(It_p).any(), f"It_p has NaN"
         assert not torch.isnan(z).any(), f"z has NaN"
         
         noise   = torch.randn_like(base).to(device)
         drift_p  = self.unet(It_p, z, ts)
         drift_m  = self.unet(It_m, z, ts)
-        print("drift_p range from ", drift_p.min().item(), " to ", drift_p.max().item())
+        
         target_p = dIdt - noise * self.gamma_dot(ts) 
         target_m = dIdt + noise * self.gamma_dot(ts)
-        print("target_p range from ", target_p.min().item(), " to ", target_p.max().item())
-        print("target_m range from ", target_m.min().item(), " to ", target_m.max().item())
-    
-        
+
         loss_p= self.image_sq_norm(drift_p - target_p).mean()
         loss_m= self.image_sq_norm(drift_m - target_m).mean()
         
@@ -263,7 +253,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         shape: tuple,
         cond: torch.Tensor,
         device: torch.device,
-        T: int = 20,
+        T: int = 15,
         start_end  = (0, 1),
         x = None,
         show_progress: bool = True,
@@ -271,7 +261,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         """Full reverse diffusion loop."""
         shape = x.shape
         x = self.sample_from_source(x, n_samples=shape[0], reparam=True).to(device)
-        print("x after sample from source")
+       
         self.start, self.end = start_end[0], start_end[1]
         self.ts = torch.linspace(self.start, self.end, T)
         
@@ -280,7 +270,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                 t_current = self.ts[ii]
                 t_next = self.ts[ii+1] 
                 dt = t_next - t_current 
-                x = self.p_sample(model = model, x_t = x, t = t*1000, cond =cond, dt = dt)
+                x = self.p_sample(model = model, x_t = x, t = t, cond =cond, dt = dt)
                 
         return x
 
@@ -303,8 +293,6 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         return y
 
 
-
-
     def prediction(self, surface_in, constant_boundary, 
                    varying_boundary, upper_air_in, 
                    num_samples = 1, device = None):
@@ -316,44 +304,22 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         B = surface_in.size(0)
         device = surface_in.device
         self.scheduler_diff.to(device)
+        
         ###############encoder 2 start ########################
         # 1. Encode condition
         #######VAE ENCODER START ########
-        surface_vae = self.encoder.patchembed2d(surface_in)
-        upper_air_vae = self.encoder.patchembed3d(upper_air_in)
-        x = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
 
-        B_vae, C_vae, Pl_vae, _, _ = x.shape
-
-        x_vae = x.reshape(B_vae, C_vae, -1).transpose(1, 2)
-        x_vae = self.encoder.layer1(x_vae)
-        # skip = x_vae
-        x_vae = self.encoder.downsample(x_vae) #8, 10350, 384
-        x_vae = self.encoder.layer2(x_vae)
-        x_vae = self.encoder.layer3(x_vae)
-        x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
-        mu = self.encoder.layer_mu(x_vae) # 
-        sigma = self.encoder.layer_sigma(x_vae) 
-        norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
     
-        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
-        # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
-        
+        z  = self._encode_vae(surface_in, upper_air_in)    
+  
+    
         ###############encoder 1 start (deterministic) ########################
         surface_det = self.model_det.patchembed2d(surface_in)
         upper_air_det = self.model_det.patchembed3d(upper_air_in)
         x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
-   
-        B_det, C_det, Pl_det, Lat, Lon = x.shape
-        #print("x_det shape before reshape ", x.shape)  #torch.Size([2, 192, 10, 45, 90])
-
-        x_det = x.reshape(B_det, C_det, -1).transpose(1, 2)
-        x_det = self.model_det.layer1(x_det, train=False)
-        skip = x_det
-        x = self.model_det.downsample(x_det)
-        x = self.model_det.layer2(x, train=False)
-        x = self.model_det.layer3(x, train=False)
-        x = x.reshape(B, Pl_det, -1,240*self.params.updown_scale_factor)
+        _, _, Pl_det, Lat, Lon = x.shape
+        
+        x, skip = self._encode_det(surface_in, upper_air_in, train=False)
         target_latent_shape = x.shape
         
         if torch.isnan(x).any():
@@ -374,8 +340,9 @@ class StochasticInterpolant(ConditionalDiffusionModel):
             print(f"[NaN check] x has NaN: {torch.isnan(x).sum().item()} NaNs")
         else:
             print("[NaN check] x : no NaN")
-        print("x shape after diffusion",x.shape)        
+          
         x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
+        
         
         ######## DETERMINISTIC DECODER START ######
         x = self.model_det.upsample(x)
@@ -394,7 +361,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
             output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
-        
+
         
         return output_surface, output_upper_air, output_diagnostic 
         

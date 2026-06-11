@@ -79,7 +79,7 @@ class DiffusionTrainer(Trainer):
                 raw_state = OrderedDict((k[7:], v) for k, v in raw_state.items())
             module.load_state_dict(raw_state, strict=True)
 
-        _load(self.params.checkpoint_path_vae, self.diff_model.encoder)
+        _load(self.params.checkpoint_path_vae_c1, self.diff_model.encoder)
         print("Loaded VAE weights from checkpoint_path_vae into diff_model.encoder")
         _load(self.params.checkpoint_path_det, self.diff_model.model_det)
         print("Loaded det weights from checkpoint_path_det into diff_model.model_det")
@@ -189,11 +189,14 @@ class DiffusionTrainer(Trainer):
                         print("wandb logging ")
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
-                    if i % 2000 == 0:
+                    if i>  2000 and i % 2000 == 0:
                         temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
                         diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
+                        last_path = os.path.join(temp_path, "last_ckpt.tar")
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
                         self.save_checkpoint(diff_path, self.diff_model)
+                        self.save_checkpoint(last_path, self.diff_model)
+                        logging.info(f"Updated last checkpoint: {last_path}")
                         
         # pbar.close()
         # pbar.updac te(1)
@@ -204,41 +207,87 @@ class DiffusionTrainer(Trainer):
         for epoch in range(epochs):
             logs = self.training_one_epoch_diffusion()
             if self.wandb_enabled:
-                wandb.log(logs, step = self.epoch)
-            # if epoch % self.params.validation_interval == 0:
-            #     self.validation_diffusion()
+                wandb.log(logs, step = self.epoch)  
+
+            if self.world_rank == 0:
+                last_path = os.path.join(ckpt_dir, "diff_ckpt.tar")
+                self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
+                self.save_checkpoint(last_path, self.diff_model)
+                logging.info("Saved latest checkpoint: %s", self.params.checkpoint_path_diff)
+                logging.info("Saved last checkpoint alias: %s", last_path)
+            
+            validation_interval = int(getattr(self.params, "validation_interval", 1))
+            if validation_interval > 0 and (self.epoch % validation_interval == 0):
+                self.validation_diffusion()
 
 
-    # def validation_diffusion(self):
-    #     self.diff_model_.eval()
-    #     #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
-    #     # define the lead times to evaluate (in time steps)
-    #     lead_times_steps = self.params.forecast_lead_times
-    #     with torch.no_grad():
-    #             latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
+    def validation_diffusion(self):
+        self.diff_model.eval()
+        valid_start = time.time()
 
-    #     # Initialize validation loss variables
-    #     valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, \
-    #     valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, \
-    #     multi_step_losses, multi_step_rmse = self.inti_valid_loss(lead_times_steps)
-        
-    #     valid_start = time.time()
-    #     nb = len(self.valid_data_loader)
+        if not hasattr(self, "valid_data_loader") or self.valid_data_loader is None:
+            logging.warning("No valid_data_loader available. Skipping diffusion validation.")
+            self.diff_model.train()
+            return {"valid_loss": float("nan")}
 
-    #     diagnostic_logs = {}
+        max_valid_batches = int(getattr(self.params, "valid_max_batches", 30))
+        total_valid_batches = len(self.valid_data_loader)
+        if max_valid_batches > 0:
+            total_valid_batches = min(total_valid_batches, max_valid_batches)
 
-    #     sample_idx = np.random.randint(len(self.valid_data_loader))
+        loss_sum = torch.zeros(1, dtype=torch.float32, device=self.device)
+        step_count = torch.zeros(1, dtype=torch.float32, device=self.device)
 
-    #     all_predictions = []
-    #     all_ground_truths = []
-    #     acc_predictions = []
-    #     acc_ground_truths = []
+        with torch.no_grad():
+            for i, data in tqdm.tqdm(
+                enumerate(self.valid_data_loader, 0),
+                total=total_valid_batches,
+                bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'
+            ):
+                if max_valid_batches > 0 and i >= max_valid_batches:
+                    break
 
-    #     # with torch.inference_mode():
-    #     with torch.no_grad():
-    #         for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
-         
-    #     return None
+                input_surface, input_upper_air, _, _, _, varying_boundary_data = self._prepare_inputs_batch(data)
+
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    val_loss = self.diff_model.training_step(
+                        surface_in=input_surface,
+                        constant_boundary=self.constant_boundary_data,
+                        varying_boundary=varying_boundary_data,
+                        upper_air_in=input_upper_air,
+                        train=False,
+                        plot_freq=0,
+                        iter=self.iters,
+                    )
+
+                loss_sum += val_loss.detach().float()
+                step_count += 1.0
+
+        if dist.is_initialized():
+            dist.all_reduce(loss_sum)
+            dist.all_reduce(step_count)
+
+        valid_loss = (loss_sum / torch.clamp_min(step_count, 1.0)).item()
+        valid_time = time.time() - valid_start
+        logs = {
+            "epoch": self.epoch,
+            "valid_loss": valid_loss,
+            "valid_time_sec": valid_time,
+        }
+
+        if self.world_rank == 0:
+            logging.info(
+                "Validation diffusion | epoch=%d valid_loss=%.6f steps=%d time=%.2fs",
+                self.epoch,
+                valid_loss,
+                int(step_count.item()),
+                valid_time,
+            )
+            if self.wandb_enabled:
+                wandb.log(logs, step=self.epoch)
+
+        self.diff_model.train()
+        return logs
         
         
     def get_diffusion_model(self):
