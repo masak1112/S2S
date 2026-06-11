@@ -442,8 +442,8 @@ if __name__ == '__main__':
     parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
     parser.add_argument("--disable_save", default=False, action="store_true", help="Disable NetCDF saving for profiling")
-    parser.add_argument("--enable_nvme", action="store_true", default=False, help="Enable change to to NVMe storage if available. If not available, will save to local disk.")
-    parser.add_argument("--nvme_dir", type=str, default="/scratch/08198/tg874973/pangu-s2s/nvme_storage", help="Directory on NVMe storage to save predictions if --enable_nvme is set. Will be created if it does not exist.")
+    parser.add_argument("--enable_nvme", action="store_true", default=False, help="Save predictions to NVMe/local scratch if available.")
+    parser.add_argument("--nvme_dir", type=str, default="", help="Directory on NVMe/local scratch to save predictions if --enable_nvme is set.")
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
@@ -455,13 +455,7 @@ if __name__ == '__main__':
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
-    
-    if args.enable_nvme:
-        dir_path = os.path.join(args.nvme_dir, "net/monsoon/S2S/h5data0")
-        params["data_dir"] = dir_path
-        print(f"NVMe enabled. data will be loaded from  {dir_path}")
-    else:
-        print("NVMe not enabled. data will be loaded from local disk or network storage depending on data_dir in config")
+    print(f"Data will be loaded from {params.data_dir}")
     
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
@@ -517,12 +511,12 @@ if __name__ == '__main__':
 
     # Set up directory
     
+    checkpointExpDir = os.path.join(os.getcwd(), 'results', args.config, str(args.run_num))
     if args.enable_nvme:
-        print(f"NVMe enabled. Predictions will be saved to {args.nvme_dir}")
-        expDir = os.path.join("/net/monsoon/mahsa/Pangu/S2S/v2.0/HPC_scripts/results", args.config, str(args.run_num))
-    
+        expDir = os.path.join(args.nvme_dir, 'results', args.config, str(args.run_num))
+        print(f"NVMe enabled. Predictions will be saved to {expDir}")
     else:
-        expDir = os.path.join(os.getcwd(), 'results', args.config, str(args.run_num))
+        expDir = checkpointExpDir
     if world_rank == 0:
         if not os.path.isdir(expDir):
             os.makedirs(expDir)
@@ -534,8 +528,8 @@ if __name__ == '__main__':
     params['experiment_dir'] = os.path.abspath(expDir)
     ckpt_path = 'training_checkpoints/ckpt.tar'
     best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path'] = os.path.join(expDir, ckpt_path)
-    params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+    params['checkpoint_path'] = os.path.join(checkpointExpDir, ckpt_path)
+    params['best_checkpoint_path'] = os.path.join(checkpointExpDir, best_ckpt_path)
     params['config_filepath'] = os.path.join(os.getcwd(), args.yaml_config)
     params['run_num'] = args.run_num
 
