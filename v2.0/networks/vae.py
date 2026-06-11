@@ -175,7 +175,7 @@ class Decoder(nn.Module):
 # VAE Wrapper
 # ----------------------------
 class VAE(nn.Module):
-    def __init__(self, params, **kwargs):
+    def __init__(self, params):
         super().__init__()
 
         self.params = params
@@ -193,7 +193,7 @@ class VAE(nn.Module):
             raise ValueError(
                 f"Requested component index {self.component}, but surface input only has {surface_in.shape[1]} channels"
             )
-        print(f"Selected component {self.component} from surface input with shape {surface_in.shape}")
+        #print(f"Selected component {self.component} from surface input with shape {surface_in.shape}")
         return surface_in[:, self.component:self.component + 1]
 
     def _merge_surface_component(self, reconstruction, surface_in, target_surface=None):
@@ -232,7 +232,6 @@ class VAE(nn.Module):
     
     
 
-    
     
     
     

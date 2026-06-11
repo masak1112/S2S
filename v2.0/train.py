@@ -386,28 +386,16 @@ class Trainer():
         """ 
         Get the model based on the nettype specified in params.
         """ 
-        if self.params.nettype == 'pangu_plasim':
-            if self.params.predict_delta:
-                self.model = PanguModel_Plasim(self.params, land_mask = self.land_mask).to(self.device)
-                
-                self.integrator = Integrator(self.params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
-                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
-                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
-                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
-            else:
-                if hasattr(self.params, 'mask_fill'):
-                    self.model_vae = VAE(self.params, land_mask = self.land_mask, mask_fill = self.params.mask_fill).to(self.device)
-                    self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
-                                               mask_fill = self.params.mask_fill).to(self.device)
-                else:
-                    self.model_vae = VAE(self.params, land_mask = self.land_mask, 
-                                                mask_fill = self.train_datasets[0].mask_fill).to(self.device)
-                    self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask,
-                                               mask_fill = self.train_datasets[0].mask_fill).to(self.device)    
-            # self.model = torch.compile(self.model, mode = 'default')
-        else:
-            raise Exception("not implemented")
 
+        if hasattr(self.params, 'mask_fill'):
+            self.model_vae = VAE(self.params).to(self.device)
+            self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask, 
+                                        mask_fill = self.params.mask_fill).to(self.device)
+        else:
+            self.model_vae = VAE(self.params).to(self.device)
+            self.model_det = PanguModel_Plasim(self.params, land_mask = self.land_mask,
+                                        mask_fill = self.train_datasets[0].mask_fill).to(self.device)    
+  
         
         if dist.is_initialized():
             self.model_vae = DistributedDataParallel(self.model_vae,

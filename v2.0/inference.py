@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 import uuid
 from utils.integrate import Integrator, forward_euler
 from train import Trainer
+from networks.vae import VAE
 
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -75,22 +76,12 @@ class Stepper(Trainer):
             self.mask_output = params.mask_output
         
         self.num_diagnostic_vars = len(self.params.diagnostic_variables) if self.params.has_diagnostic else 0
-
-        # if params.log_to_wandb:
-        #     wandb.init(config=params, name=params.name, group=params.group, project=params.project,
-        #                entity=params.entity, settings=wandb.Settings(_disable_stats=True) )
-
         logging.info('rank %d, begin data loader init' % world_rank)
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
                                                                      num_inferences = params.num_inferences, validate = True)
         print(f'Valid dataset length: {len(self.valid_dataset)}')
-        # self.infer_data_loader, self.infer_dataset = get_infer_data(params, params.data_dir, dist.is_initialized(),
-        #                                                              year_start=params.val_year_start,
-        #                                                              year_end=params.val_year_end, step=1462,
-        #                                                              num_inferences = params.num_inferences, validate = True)
-
         self.constant_boundary_data = self.valid_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
         logging.info('rank %d, data loader initialized' % world_rank)
@@ -111,11 +102,10 @@ class Stepper(Trainer):
             else:
                 land_mask = None
             
-            self.model_vae = PanguModel_Plasim_VAE(self.params, land_mask = land_mask, mask_fill = self.params.mask_fill).to(self.device)
+            self.model_vae = VAE(self.params).to(self.device)
             self.model_det = PanguModel_Plasim(self.params, land_mask = land_mask, 
                                                mask_fill = self.params.mask_fill).to(self.device)
 
-            # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
 
@@ -134,7 +124,7 @@ class Stepper(Trainer):
 
         self.restore_diff_checkpoint(params.checkpoint_path_diff)
         self._reload_vae_checkpoint(
-            checkpoint_path_vae=params.checkpoint_path_vae,
+            checkpoint_path_vae=params.checkpoint_path_vae_c1,
             checkpoint_path_det=params.checkpoint_path_det,
         )
 
@@ -170,8 +160,6 @@ class Stepper(Trainer):
         diff_model.encoder and diff_model.model_det respectively.
         Guarantees both always use checkpoint_path_vae / checkpoint_path_det,
         regardless of what any diff checkpoint may contain."""
-        checkpoint_path_vae = checkpoint_path_vae or self.params.checkpoint_path_vae
-        checkpoint_path_det = checkpoint_path_det or self.params.checkpoint_path_det
 
         def _load(path, module):
             ckpt = torch.load(path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
@@ -194,8 +182,6 @@ class Stepper(Trainer):
         valid_time, valid_logs = self.validate_one_epoch()
         
         
-
-
     def validate_one_epoch(self):
         self.model_diff.eval()
         total_start = time.time()
@@ -234,37 +220,17 @@ class Stepper(Trainer):
                 
 
                     for time_step in range(self.params['inference_steps']):
-                        if self.params.has_diagnostic:
                             
-                            val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data, 
+                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data, 
                                                                     varying_boundary=val_varying_boundary_data[:,time_step], 
                                                                     upper_air_in=val_input_upper_air, device=self.device)
-                            # val_out_surface, val_out_upper_air, val_out_diagnostic, _, _ = self.model(val_input_surface, 
-                            #                                                                     self.constant_boundary_data, 
-                            #                                                                     val_varying_boundary_data[:,time_step],
-                            #                                                                     val_input_upper_air)
-                            
-                            val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
-  
-
-                        else:
-                            val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                                val_varying_boundary_data[:,time_step], val_input_upper_air)
-                        if self.params.predict_delta:
-                            val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
-                        else:
-                            val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
+                        val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
+                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                     
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-                        
-                        
-                    
-    
-                    if self.params.has_diagnostic:
-                        self.save_prediction(val_output_surface, val_output_upper_air , start_times, val_output_diagnostic, ens_id=ens_id)
-                    else:
-                        self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+                               
+                    self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
         
                 
         total_time = time.time() - total_start
