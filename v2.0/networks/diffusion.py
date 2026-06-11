@@ -269,7 +269,7 @@ class ConUNet_1degV2(nn.Module):
 
 
     def forward(self, x, cond, time):
-        time = time * 1000
+       
         t = self.time_mlp(time)
         # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
         cond_c = self.cond_to_c(cond)
@@ -398,18 +398,17 @@ class DDPMScheduler:
         shape: tuple,
         cond: torch.Tensor,
         device: torch.device,
-        T: int = 1000,
         show_progress: bool = True,
     ) -> torch.Tensor:
-        """Full reverse diffusion loop."""
+        """Full reverse diffusion loop using self.T steps."""
         x = torch.randn(shape, device=device)
         disable_bar = not show_progress
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             disable_bar = disable_bar or torch.distributed.get_rank() != 0
 
         steps = tqdm(
-            reversed(range(T)),
-            total=T,
+            reversed(range(self.T)),
+            total=self.T,
             desc="Diffusion sampling",
             leave=False,
             disable=disable_bar,
@@ -420,6 +419,201 @@ class DDPMScheduler:
             x = self.p_sample(model, x, t, cond)
         print(f"Sampling took {time.time() - ts:.2f} seconds")
         return x
+
+# ---------------------------------------------------------------------------
+# DDIM sampler  (Song et al., 2020 — https://arxiv.org/abs/2010.02502)
+# ---------------------------------------------------------------------------
+
+class DDIMScheduler:
+    """
+    DDIM accelerated sampler.
+
+    Reuses the same linear-beta noise schedule as DDPMScheduler but iterates
+    over a short subsequence of timesteps, making sampling 10-50x faster.
+
+    Args:
+        T: total training timesteps (must match the trained DDPMScheduler).
+        beta_start / beta_end: same values used during training.
+        num_inference_steps: how many denoising steps to use at sampling time
+            (e.g. 50 instead of 1000).  Can also be overridden per-call in
+            ``sample()``.
+        eta: controls stochasticity.  0 → fully deterministic (original DDIM);
+            1 → recovers DDPM variance; values in between interpolate.
+    """
+
+    def __init__(
+        self,
+        T: int = 1000,
+        beta_start: float = 1e-4,
+        beta_end: float = 0.02,
+        num_inference_steps: int = 50,
+        eta: float = 0.0,
+    ):
+        self.T = T
+        self.num_inference_steps = num_inference_steps
+        self.eta = eta
+
+        betas = torch.linspace(beta_start, beta_end, T)
+        alphas = 1.0 - betas
+        alphas_bar = torch.cumprod(alphas, dim=0)
+
+        self.register("betas", betas)
+        self.register("alphas", alphas)
+        self.register("alphas_bar", alphas_bar)
+        self.register("sqrt_alphas_bar", alphas_bar.sqrt())
+        self.register("sqrt_one_minus_alphas_bar", (1.0 - alphas_bar).sqrt())
+
+    def register(self, name: str, val: torch.Tensor):
+        setattr(self, name, val)
+
+    def to(self, device):
+        for attr in ["betas", "alphas", "alphas_bar",
+                     "sqrt_alphas_bar", "sqrt_one_minus_alphas_bar"]:
+            setattr(self, attr, getattr(self, attr).to(device))
+        return self
+
+    # ------------------------------------------------------------------
+    # Forward process (identical to DDPM — used during training)
+    # ------------------------------------------------------------------
+
+    def q_sample(
+        self,
+        x0: torch.Tensor,
+        t: torch.Tensor,
+        noise: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward diffusion: sample x_t given x_0 and t."""
+        if noise is None:
+            noise = torch.randn_like(x0)
+        sqrt_ab = self.sqrt_alphas_bar[t].view(-1, 1, 1, 1)
+        sqrt_1mab = self.sqrt_one_minus_alphas_bar[t].view(-1, 1, 1, 1)
+        x_t = sqrt_ab * x0 + sqrt_1mab * noise
+        return x_t, noise
+
+    # ------------------------------------------------------------------
+    # DDIM reverse step
+    # ------------------------------------------------------------------
+
+    def _make_timestep_sequence(self, num_inference_steps: int) -> list[int]:
+        """Return a decreasing list of training-timestep indices of length num_inference_steps."""
+        # Evenly spaced in [0, T-1], then reversed so we go from noisy to clean.
+        step = self.T // num_inference_steps
+        timesteps = list(range(0, self.T, step))[-num_inference_steps:]
+        return list(reversed(timesteps))  # e.g. [999, 979, ..., 19, 0] for T=1000, S=50
+
+    @torch.no_grad()
+    def ddim_step(
+        self,
+        model: ConUNet_1degV2,
+        x_t: torch.Tensor,
+        t_idx: int,       # index into the subsequence (0 = first/noisiest step)
+        t_next_idx: int | None,  # index of the next (cleaner) timestep; None at the last step
+        timesteps: list[int],
+        cond: torch.Tensor,
+        eta: float,
+    ) -> torch.Tensor:
+        """
+        One DDIM reverse step: x_{t} -> x_{t_prev}.
+
+        The DDIM update (eq. 12 in the paper):
+            predicted_x0  = (x_t - sqrt(1-ᾱ_t) * eps) / sqrt(ᾱ_t)
+            sigma_t       = eta * sqrt((1-ᾱ_{t-1})/(1-ᾱ_t)) * sqrt(1 - ᾱ_t/ᾱ_{t-1})
+            direction     = sqrt(1 - ᾱ_{t-1} - sigma_t²) * eps
+            x_{t-1}       = sqrt(ᾱ_{t-1}) * predicted_x0 + direction + sigma_t * noise
+        """
+        t = timesteps[t_idx]
+        t_prev = timesteps[t_next_idx] if t_next_idx is not None else -1
+
+        B = x_t.shape[0]
+        device = x_t.device
+        t_batch = torch.full((B,), t, dtype=torch.long, device=device)
+
+        # Predict noise
+        eps_pred = model(x_t, cond, t_batch)
+
+        # ᾱ values
+        ab_t = self.alphas_bar[t]
+        ab_prev = self.alphas_bar[t_prev] if t_prev >= 0 else torch.ones(1, device=device)
+
+        sqrt_ab_t    = ab_t.sqrt()
+        sqrt_1mab_t  = (1.0 - ab_t).sqrt()
+        sqrt_ab_prev = ab_prev.sqrt()
+
+        # Predicted clean sample (clamp for stability)
+        predicted_x0 = (x_t - sqrt_1mab_t * eps_pred) / sqrt_ab_t
+        predicted_x0 = predicted_x0.clamp(-5.0, 5.0)
+
+        # DDIM sigma (eq. 16): eta=0 → deterministic, eta=1 → DDPM
+        # sigma_t = eta * sqrt((1-ᾱ_{t-1})/(1-ᾱ_t)) * sqrt(1 - ᾱ_t/ᾱ_{t-1})
+        # Guard against the edge case where ab_t > ab_prev (shouldn't happen with linear schedule)
+        ratio = (ab_t / ab_prev).clamp(max=1.0)
+        sigma_t = eta * ((1.0 - ab_prev) / (1.0 - ab_t)).sqrt() * (1.0 - ratio).sqrt()
+
+        # Direction toward x_t
+        coeff_dir = (1.0 - ab_prev - sigma_t ** 2).clamp(min=0.0).sqrt()
+        direction = coeff_dir * eps_pred
+
+        # Optional stochastic noise term
+        noise = sigma_t * torch.randn_like(x_t) if (eta > 0.0 and t_prev >= 0) else 0.0
+
+        x_prev = sqrt_ab_prev * predicted_x0 + direction + noise
+        return x_prev
+
+    # ------------------------------------------------------------------
+    # Full DDIM reverse loop
+    # ------------------------------------------------------------------
+
+    @torch.no_grad()
+    def sample(
+        self,
+        model: ConUNet_1degV2,
+        shape: tuple,
+        cond: torch.Tensor,
+        device: torch.device,
+        num_inference_steps: int | None = None,
+        eta: float | None = None,
+        show_progress: bool = True,
+    ) -> torch.Tensor:
+        """
+        DDIM reverse diffusion loop.
+
+        Args:
+            model:               noise-predicting network.
+            shape:               output shape (B, C, H, W).
+            cond:                conditioning tensor.
+            device:              target device.
+            num_inference_steps: overrides the instance default if provided.
+            eta:                 overrides the instance default if provided.
+            show_progress:       whether to show a tqdm bar.
+        Returns:
+            Denoised sample of `shape`.
+        """
+        S   = num_inference_steps if num_inference_steps is not None else self.num_inference_steps
+        eta = eta if eta is not None else self.eta
+
+        timesteps = self._make_timestep_sequence(S)
+
+        x = torch.randn(shape, device=device)
+
+        disable_bar = not show_progress
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            disable_bar = disable_bar or torch.distributed.get_rank() != 0
+
+        steps = tqdm(
+            range(len(timesteps)),
+            total=len(timesteps),
+            desc=f"DDIM sampling (S={S}, eta={eta})",
+            leave=False,
+            disable=disable_bar,
+        )
+
+        ts = time.time()
+        for i in steps:
+            t_next_idx = i + 1 if i + 1 < len(timesteps) else None
+            x = self.ddim_step(model, x, i, t_next_idx, timesteps, cond, eta)
+        print(f"DDIM sampling took {time.time() - ts:.2f}s  ({S} steps, eta={eta})")
+        return x
+
 
 # ---------------------------------------------------------------------------
 # Combined model + training step
@@ -437,7 +631,8 @@ class ConditionalDiffusionModel(nn.Module):
         VAEEncoder = None,
         DETEncoder = None,
         params = None,
-        
+        ddim_steps: int = 50,
+        ddim_eta: float = 0.0,
     ):
         super().__init__()
         self.kl_weight = kl_weight
@@ -467,8 +662,13 @@ class ConditionalDiffusionModel(nn.Module):
         self._encoder_param_checksums = self._snapshot_encoder_params()
         self.unet = ConUNet_1degV2(dim_in =10, dim_cond=2, dim_out=10, c = 64,
                                    c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4)
-        
+
         self.scheduler_diff = DDPMScheduler(T=T)
+        self.scheduler_ddim = DDIMScheduler(
+            T=T,
+            num_inference_steps=ddim_steps,
+            eta=ddim_eta,
+        )
 
     def freeze_encoder(self):
         self.encoder.eval()
@@ -509,6 +709,7 @@ class ConditionalDiffusionModel(nn.Module):
     def train(self, mode: bool = True):
         super().train(mode)
         self.encoder.eval()
+        self.model_det.eval()
         return self
 
     def _prepare_surface(
@@ -540,6 +741,7 @@ class ConditionalDiffusionModel(nn.Module):
         x = torch.cat([upper_air_emb, surface_emb.unsqueeze(2)], dim=2)
         B, C, Pl, _, _ = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
+        x = self.model_det.layer1(x, train)
         skip = x
         x = self.model_det.downsample(x)
         x = self.model_det.layer2(x, train)
@@ -642,17 +844,26 @@ class ConditionalDiffusionModel(nn.Module):
         z: torch.Tensor= None,
         num_samples: int = 1,
         sample_shape: tuple | None = None,
-        device =  None, 
+        device = None,
+        sampler: str = "ddpm",
+        ddim_steps: int | None = None,
+        ddim_eta: float | None = None,
     ) -> torch.Tensor:
         """
-        Generate images conditioned on a source image's VAE encoding.
+        Generate samples conditioned on z.
 
         Args:
-            z: conditional information
-            num_samples:     how many samples to draw per condition
-            use_mean:        if True use mu (deterministic), else sample z
+            model_diff:  noise-predicting UNet (self.unet).
+            z:           conditioning tensor from the VAE encoder.
+            num_samples: ensemble members per condition.
+            sample_shape: shape of the latent to sample (B,C,H,W) or (C,H,W).
+            device:      target device.
+            sampler:     ``"ddpm"`` for full 1000-step DDPM, or ``"ddim"`` for
+                         accelerated DDIM sampling.
+            ddim_steps:  number of DDIM denoising steps (overrides instance
+                         default; only used when sampler="ddim").
+            ddim_eta:    DDIM stochasticity (0=deterministic, 1=DDPM-like).
         """
-        # Repeat condition for num_samples
         z = z.repeat_interleave(num_samples, dim=0)
 
         if sample_shape is None:
@@ -666,13 +877,25 @@ class ConditionalDiffusionModel(nn.Module):
                 raise ValueError(f"sample_shape must have 3 or 4 dims, got {sample_shape}")
 
         shape = (z.size(0), C, H, W)
-        return self.scheduler_diff.sample(model_diff, shape, z, device)
+
+        if sampler == "ddim":
+            self.scheduler_ddim.to(device)
+            return self.scheduler_ddim.sample(
+                model_diff, shape, z, device,
+                num_inference_steps=ddim_steps,
+                eta=ddim_eta,
+            )
+        else:
+            return self.scheduler_diff.sample(model_diff, shape, z, device)
 
 
-    def prediction(self, surface_in, constant_boundary, 
-                   varying_boundary, upper_air_in, 
-                   num_samples = 1, device = None):
-        
+    def prediction(self, surface_in, constant_boundary,
+                   varying_boundary, upper_air_in,
+                   num_samples=1, device=None,
+                   sampler: str = "ddpm",
+                   ddim_steps: int | None = None,
+                   ddim_eta: float | None = None):
+
         if len(constant_boundary.size()) == 3:
             constant_boundary = constant_boundary.unsqueeze(0)
         surface_in = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
@@ -730,6 +953,9 @@ class ConditionalDiffusionModel(nn.Module):
             num_samples=num_samples,
             sample_shape=target_latent_shape,
             device=device,
+            sampler=sampler,
+            ddim_steps=ddim_steps,
+            ddim_eta=ddim_eta,
         )
         
         if torch.isnan(x).any():
@@ -751,7 +977,6 @@ class ConditionalDiffusionModel(nn.Module):
         if torch.isnan(output_surface).any():
             print(f"[NaN check] output_surface (after patchrecovery2d) has NaN: {torch.isnan(output_surface).sum().item()} NaNs")
    
-
         output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
             output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
