@@ -210,12 +210,7 @@ class PanguModel_Plasim(nn.Module):
         self.predict_delta = params.predict_delta
         self.surface_prognostic_idxs = torch.cat((torch.arange(self.num_surface_vars).long(), 
                                                   torch.arange(self.num_surface_vars + self.num_diagnostic_vars, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
-        #if self.predict_delta:
-        #    try:
-        #        assert None not in [surface_ff_std, surface_delta_std, upper_air_ff_std, upper_air_delta_std]
-        #    except:
-        #        raise ValueError('surface_ff_std, surface_delta_std, upper_air_ff_std, and upper_air_delta_std must be defined if predict_delta = True.')
-            
+
 
         self.window_size = params.window_size
         self.vertical_windowing=params.vertical_windowing

@@ -190,9 +190,9 @@ class DiffusionTrainer(Trainer):
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
                     if i>  2000 and i % 2000 == 0:
-                        temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
-                        diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
-                        last_path = os.path.join(temp_path, "last_ckpt.tar")
+                        self.temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
+                        diff_path = os.path.join(self.temp_path, f"diff_ckpt_{self.iters}.tar")
+                        last_path = os.path.join(self.temp_path, "last_ckpt.tar")
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
                         self.save_checkpoint(diff_path, self.diff_model)
                         self.save_checkpoint(last_path, self.diff_model)
@@ -210,7 +210,7 @@ class DiffusionTrainer(Trainer):
                 wandb.log(logs, step = self.epoch)  
 
             if self.world_rank == 0:
-                last_path = os.path.join(ckpt_dir, "diff_ckpt.tar")
+                last_path = os.path.join(self.temp_path, "diff_ckpt.tar")
                 self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
                 self.save_checkpoint(last_path, self.diff_model)
                 logging.info("Saved latest checkpoint: %s", self.params.checkpoint_path_diff)
@@ -327,21 +327,22 @@ if __name__ == "__main__":
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
     parser.add_argument("--fresh_start", default=False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
-    parser.add_argument("--local_storage", default=False, type=str)
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
+    parser.add_argument("--year", default=1979, type=int, help="if enbale_nvme is true, then use the year data")
+    parser.add_argument("--enable_nvme", action="store_true", default=False, help="Save predictions to NVMe/local scratch if available.")
+    parser.add_argument("--nvme_dir", type=str, default="", help="Directory on NVMe/local scratch to save predictions if --enable_nvme is set.")
     #######
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
-    if args.local_storage:
-        params["data_dir"] = args.local_storage
-        print("using the local storage:",params["data_dir"])
+
         
     print("This is the starting point f")
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
+
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
             params['has_diagnostic'] = True
@@ -375,7 +376,6 @@ if __name__ == "__main__":
         params['world_size'] = torch.cuda.device_count()
         print(params['world_size'])
 
-
      
     if params['world_size'] > 1:
         
@@ -397,6 +397,12 @@ if __name__ == "__main__":
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
 
+    if args.enable_nvme:
+        params["data_dir"] = args.nvme_dir
+        params["train_year_start"] = args.year
+        params["train_year_end"] = args.year + 1
+        
+    
     # Set up directory
     expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
     if world_rank == 0:

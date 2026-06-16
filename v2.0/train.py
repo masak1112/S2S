@@ -1308,6 +1308,7 @@ if __name__ == '__main__':
     parser.add_argument("--fresh_start", default=False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
+
     #######
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
