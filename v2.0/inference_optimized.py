@@ -136,7 +136,7 @@ class Stepper():
 
         with torch.inference_mode(), torch.amp.autocast('cuda', enabled=self.params.enable_amp, dtype=torch.bfloat16):
             data_iter = iter(self.valid_data_loader)
-            for i in range(6):
+            for i in range(15):
                 nvtx.range_push(f"dataloader next {i}")
                 try:
                     data = next(data_iter)
@@ -166,7 +166,7 @@ class Stepper():
                 save_mask = [start_time.strftime('%H') == '00' for start_time in start_times]
                 should_save_outputs = (not self.disable_save) and any(save_mask)
 
-                for ens_id in list(range(2)): 
+                for ens_id in list(range(20)): 
                     nvtx.range_push(f"inference step {i}_ens_{ens_id}")  # Start inference step
                     val_input_surface = batch_input_surface
                     val_input_upper_air = batch_input_upper_air
@@ -435,7 +435,6 @@ if __name__ == '__main__':
     parser.add_argument("--run_num", default='0189', type=str)
     parser.add_argument("--yaml_config", default='config/PANGU_NEW_0189.yaml', type=str)
     parser.add_argument("--config", default='S2S', type=str)
-    
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
@@ -561,7 +560,7 @@ if __name__ == '__main__':
             hparams[str(key)] = str(value)
         with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
-    
+    s_time = time.time()
     inference = Stepper(params, world_rank, args.async_save, args.disable_save)
     inference.predict()
     if dist.is_initialized():
@@ -570,3 +569,4 @@ if __name__ == '__main__':
         dist.destroy_process_group()
         nvtx.range_pop()
     logging.info('DONE ---- rank %d' % world_rank)
+    print("total time for inference:",time.time()-s_time)
