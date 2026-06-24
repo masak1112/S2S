@@ -1755,9 +1755,12 @@ if __name__ == '__main__':
             hparams[str(key)] = str(value)
         with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
-
+    t_start = time.time()
     trainer = Trainer(params, world_rank)
     trainer.setup_model()
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)
+    t_end = time.time()
+    total_time = t_end - t_start
+    print(f"Total trainin and validation time: {total_time:.2f} seconds")
 
