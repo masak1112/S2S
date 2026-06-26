@@ -225,9 +225,7 @@ class VAE(nn.Module):
         #print("Input surface shape:", surface_in.shape)
         x = self._select_surface_component(surface_in) # 2,1 180, 360
         z, mean, logvar = self.encode(x) #2, 2, 23, 45
-        print("Encoded latent shape:", z.shape)
         x_recon = self.decode(z, target_shape=x.shape[-2:])
-
         return x_recon, mean, logvar
     
     

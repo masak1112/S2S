@@ -729,7 +729,7 @@ class ConditionalDiffusionModel(nn.Module):
         """Stochastic VAE encoding -> latent z."""
         x = self.encoder._select_surface_component(surface) 
         z, mean, logvar = self.encoder.encode(x)  #1, 2, 23, 45
-        print("VAE z shape ", z.shape) 
+       
         return z
 
     def _encode_det(

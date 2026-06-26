@@ -219,11 +219,13 @@ class Stepper(Trainer):
                     val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
                 
 
+                    ens_seed = ens_id * 10000
                     for time_step in range(self.params['inference_steps']):
-                            
-                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data, 
-                                                                    varying_boundary=val_varying_boundary_data[:,time_step], 
-                                                                    upper_air_in=val_input_upper_air, device=self.device)
+                        seed = ens_seed + time_step
+
+                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data,
+                                                                    varying_boundary=val_varying_boundary_data[:,time_step],
+                                                                    upper_air_in=val_input_upper_air, device=self.device, seed=seed)
                         val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
                         val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                     

@@ -149,14 +149,15 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         return samples
         
     
-    def training_step(self, surface_in, constant_boundary, varying_boundary, 
-                      upper_air_in, train = True, plot_freq = 0, 
-                      plot_path = "noise_comparison.png", iter=0,lower_upper: tuple = (0.0001, 0.9999)):
-        
+    def training_step(self, surface_in, constant_boundary, varying_boundary,
+                      upper_air_in, train = True, plot_freq = 0,
+                      plot_path = "noise_comparison.png", iter=0, lower_upper: tuple = (0.0001, 0.9999),
+                      plot_scatter: bool = False, scatter_path: str = "scatter_pred_gt.png"):
+
         """Single diffusion training step. Returns RMSE loss."""
         lower, upper = lower_upper[0], lower_upper[1]
-        
-        
+
+
         surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
         B = surface.size(0)
         device = surface.device
@@ -165,43 +166,77 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # Encode stochastic condition (VAE) and deterministic features
         z = self._encode_vae(surface, upper_air_in)
         x, skip = self._encode_det(surface, upper_air_in, train=True)
-        
+
         #source and target distributions
         base = self.sample_from_source(x, n_samples=B, reparam=True)
         assert base.shape == x.shape, f"Expected shape of base noise to match x. Got {base.shape} and {x.shape}."
-    
-        
-        target = x  
+
+
+        target = x
         It = self.I(x0=base, x1=target, t=ts)
         dIdt = self.dIdt(x0=base, x1=target, t=ts)
         It_p = It + self.gamma(ts)*torch.randn_like(It).to(device)
         It_m = It - self.gamma(ts)*torch.randn_like(It).to(device)
-   
+
         assert not torch.isnan(It_p).any(), f"It_p has NaN"
         assert not torch.isnan(z).any(), f"z has NaN"
-        
+
         noise   = torch.randn_like(base).to(device)
         drift_p  = self.unet(It_p, z, ts)
         drift_m  = self.unet(It_m, z, ts)
-        
-        target_p = dIdt - noise * self.gamma_dot(ts) 
+
+        target_p = dIdt - noise * self.gamma_dot(ts)
         target_m = dIdt + noise * self.gamma_dot(ts)
 
         loss_p= self.image_sq_norm(drift_p - target_p).mean()
         loss_m= self.image_sq_norm(drift_m - target_m).mean()
-        
+
         loss = loss_p + loss_m
+
+        if plot_scatter:
+            self._plot_scatter(drift_p, target_p, iter=iter, save_path=scatter_path)
+
         return loss
+
+    def _plot_scatter(self, pred: torch.Tensor, target: torch.Tensor,
+                      iter: int = 0, save_path: str = "scatter_pred_gt.png",
+                      max_points: int = 4096) -> None:
+        """Scatter plot of predicted vs ground-truth drift for the first batch item."""
+        pred_np   = pred[0].detach().cpu().float().flatten().numpy()
+        target_np = target[0].detach().cpu().float().flatten().numpy()
+
+        if len(pred_np) > max_points:
+            idx = np.random.default_rng(iter).choice(len(pred_np), max_points, replace=False)
+            pred_np, target_np = pred_np[idx], target_np[idx]
+
+        corr = float(np.corrcoef(pred_np, target_np)[0, 1]) if len(pred_np) > 1 else float('nan')
+
+        lim = max(float(np.abs(target_np).max()), float(np.abs(pred_np).max())) * 1.05
+        lim = lim if lim > 0 else 1.0
+
+        fig, ax = plt.subplots(figsize=(5, 5))
+        ax.scatter(target_np, pred_np, s=2, alpha=0.25, linewidths=0, rasterized=True)
+        ax.plot([-lim, lim], [-lim, lim], 'r--', lw=1.2, label='y = x')
+        ax.set_xlim(-lim, lim)
+        ax.set_ylim(-lim, lim)
+        ax.set_xlabel("Ground truth drift")
+        ax.set_ylabel("Predicted drift")
+        ax.set_title(f"Pred vs GT drift  iter={iter}  r={corr:.3f}")
+        ax.legend(fontsize=8)
+        ax.set_aspect('equal')
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=100, bbox_inches='tight')
+        plt.close(fig)
     
     
-    def step_forward(self, x, drift, dt, g, eps = torch.tensor(0.5)):
+    def step_forward(self, x, drift, dt, g, eps = torch.tensor(0.99)):
         """
         Perform one step of the forward SDE: x_{t+dt} = x_t + drift*dt + squire(dt)*gamma(t)*eps, where dW ~ N(0, dt).
         """
         dW = torch.sqrt(dt)*torch.randn_like(x, device=x.device)
         #This is from Anthony
         #x = x + dt*drift + g*dW
-        #This is from 
+    
         x = x + dt*drift + torch.sqrt(2*eps) * dW
         return x
     
@@ -293,10 +328,14 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         return y
 
 
-    def prediction(self, surface_in, constant_boundary, 
-                   varying_boundary, upper_air_in, 
-                   num_samples = 1, device = None):
+    def prediction(self, surface_in, constant_boundary,
+                   varying_boundary, upper_air_in,
+                   num_samples = 1, device = None, seed = None):
         
+        if seed is not None:
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+
         if len(constant_boundary.size()) == 3:
             constant_boundary = constant_boundary.unsqueeze(0)
         surface_in = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
@@ -311,8 +350,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
     
         z  = self._encode_vae(surface_in, upper_air_in)    
-  
-    
+
         ###############encoder 1 start (deterministic) ########################
         surface_det = self.model_det.patchembed2d(surface_in)
         upper_air_det = self.model_det.patchembed3d(upper_air_in)
@@ -322,10 +360,10 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         x, skip = self._encode_det(surface_in, upper_air_in, train=False)
         target_latent_shape = x.shape
         
-        if torch.isnan(x).any():
-            print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
-        else:
-            print("[NaN check] x before diffusion : no NaN")     
+        # if torch.isnan(x).any():
+        #     print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
+        # else:
+        #     print("[NaN check] x before diffusion : no NaN")     
             
         x = self.generate(
             model_diff=self.unet,
@@ -336,11 +374,6 @@ class StochasticInterpolant(ConditionalDiffusionModel):
             device=device,
         )
         
-        if torch.isnan(x).any():
-            print(f"[NaN check] x has NaN: {torch.isnan(x).sum().item()} NaNs")
-        else:
-            print("[NaN check] x : no NaN")
-          
         x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
         
         
@@ -353,10 +386,10 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         output_upper_air = output[:, :, :-1, :, :]
         output_2D = self.model_det.patchrecovery2d(output_surface)
         output_surface = output_2D[:, self.surface_prognostic_idxs]
-        if torch.isnan(output_surface).any():
-            print(f"[NaN check] output_surface (after patchrecovery2d) has NaN: {torch.isnan(output_surface).sum().item()} NaNs")
-        else:
-            print("[NaN check] output_surface (after patchrecovery2d): no NaN")
+        # if torch.isnan(output_surface).any():
+        #     print(f"[NaN check] output_surface (after patchrecovery2d) has NaN: {torch.isnan(output_surface).sum().item()} NaNs")
+        # else:
+        #     print("[NaN check] output_surface (after patchrecovery2d): no NaN")
 
         output_upper_air = self.model_det.patchrecovery3d(output_upper_air)
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(

@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --account=pi-pedramh
-#SBATCH --time=20:10:00
+#SBATCH --time=47:10:00
 #SBATCH -p pedramh-gpu 
 #SBATCH --nodes=1
 #SBATCH --mem=500G
@@ -48,8 +48,8 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export OMP_NUM_THREAD=8
 # Launch your script using torch.distributed.launch
 # config_file=../config/PANGU_S2S_lr3b_midway.yaml
-config_file=../config/exp14.yaml
+config_file=../config/exp16.yaml
 
 #train command
 # /project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
-/project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train_diffusion.py --yaml_config=$config_file --run_num=14
+/project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train_diffusion.py --yaml_config=$config_file --run_num=si_c1

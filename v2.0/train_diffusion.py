@@ -159,15 +159,20 @@ class DiffusionTrainer(Trainer):
                 else:
                 
                     self.iters += 1
-                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)          
+                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
                     self.optimizer.zero_grad()
+
+                    do_scatter = (self.iters % 1000 == 0) and (self.world_rank == 0)
+                    _scatter_dir = os.path.dirname(self.params.checkpoint_path_diff)
+                    scatter_path = os.path.join(_scatter_dir, "scatter_tmp.png")
+
                     with torch.autocast(device_type='cuda', dtype=torch.float16):
-                        loss = self.diff_model.training_step(surface_in = input_surface, 
-                                                             constant_boundary = self.constant_boundary_data, 
-                                                             varying_boundary = varying_boundary_data, 
-                                                             upper_air_in = input_upper_air, plot_freq = 200, iter = self.iters)   
-                    
-                
+                        loss = self.diff_model.training_step(surface_in = input_surface,
+                                                             constant_boundary = self.constant_boundary_data,
+                                                             varying_boundary = varying_boundary_data,
+                                                             upper_air_in = input_upper_air, plot_freq = 200, iter = self.iters,
+                                                             plot_scatter = do_scatter, scatter_path = scatter_path)
+
                     self.scaler.scale(loss).backward()
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
@@ -177,18 +182,19 @@ class DiffusionTrainer(Trainer):
                     scale_after = self.scaler.get_scale()
                     if scale_after < scale_before:
                         print("overflow happened")
-                        
+
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
 
                     current_lr = self.optimizer.param_groups[0]["lr"]
                     diagnostic_logs = {"loss": loss, "lr": current_lr}
-                    
+
                     print("self.wandb_enabled", self.wandb_enabled)
-                    if self.world_rank == 0 :
+                    if self.world_rank == 0:
                         print("wandb logging ")
-                        #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
+                        if do_scatter and self.wandb_enabled and os.path.isfile(scatter_path):
+                            wandb.log({"scatter_pred_vs_gt": wandb.Image(scatter_path)}, step=self.iters)
                     if i>  2000 and i % 2000 == 0:
                         self.temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
                         diff_path = os.path.join(self.temp_path, f"diff_ckpt_{self.iters}.tar")
@@ -216,9 +222,9 @@ class DiffusionTrainer(Trainer):
                 logging.info("Saved latest checkpoint: %s", self.params.checkpoint_path_diff)
                 logging.info("Saved last checkpoint alias: %s", last_path)
             
-            validation_interval = int(getattr(self.params, "validation_interval", 1))
-            if validation_interval > 0 and (self.epoch % validation_interval == 0):
-                self.validation_diffusion()
+            # validation_interval = int(getattr(self.params, "validation_interval", 1))
+            # if validation_interval > 0 and (self.epoch % validation_interval == 0):
+            #     self.validation_diffusion()
 
 
     def validation_diffusion(self):
