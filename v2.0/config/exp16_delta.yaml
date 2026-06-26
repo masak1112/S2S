@@ -21,18 +21,18 @@ base_config: &BASE
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
-  name: 'S2S-SI'
+  name: 'S2S-diffusion'
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.01
   mode: 'train'
-  diffusion_model_type: "SI"
+  diffusion_model_type: "diffusion"
   num_ensemble_members: 1
   component: 8
   base_channels: 2
   z_channels: 2
   test_iterations: 10000000000
-  checkpoint_path_vae: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"
+  checkpoint_path_vae_c1: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"
   checkpoint_path_det: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/training_checkpoints_determinstic/ckpt.tar"
   checkpoint_path_diff: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/diff_ckpt.tar"
   #checkpoint_path_vae: "/glade/work/bgong/PanguWeather/v2.0/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"

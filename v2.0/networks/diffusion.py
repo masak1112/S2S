@@ -9,12 +9,10 @@ from einops import rearrange
 from functools import partial
 from tqdm.auto import tqdm
 from torch import nn, einsum, optim
-from torch.nn import functional as F
 import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
 Tensor = torch.Tensor
 
 
@@ -706,11 +704,7 @@ class ConditionalDiffusionModel(nn.Module):
             assert abs(current - expected) < 1e-6, \
                 f"model_det param '{name}' changed during training: {expected:.6f} -> {current:.6f}"
 
-    def train(self, mode: bool = True):
-        super().train(mode)
-        self.encoder.eval()
-        self.model_det.eval()
-        return self
+
 
     def _prepare_surface(
         self,
@@ -903,28 +897,14 @@ class ConditionalDiffusionModel(nn.Module):
         B = surface_in.size(0)
         device = surface_in.device
         self.scheduler_diff.to(device)
+        
         ###############encoder 2 start ########################
         # 1. Encode condition
         #######VAE ENCODER START ########
-        surface_vae = self.encoder.patchembed2d(surface_in)
-        upper_air_vae = self.encoder.patchembed3d(upper_air_in)
-        x = torch.concat([upper_air_vae, surface_vae.unsqueeze(2)], dim=2)
 
-        B_vae, C_vae, Pl_vae, _, _ = x.shape
-
-        x_vae = x.reshape(B_vae, C_vae, -1).transpose(1, 2)
-        x_vae = self.encoder.layer1(x_vae)
-        # skip = x_vae
-        x_vae = self.encoder.downsample(x_vae) #8, 10350, 384
-        x_vae = self.encoder.layer2(x_vae)
-        x_vae = self.encoder.layer3(x_vae)
-        x_vae = x_vae.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
-        mu = self.encoder.layer_mu(x_vae) # 
-        sigma = self.encoder.layer_sigma(x_vae) 
-        norm = self.encoder.reparameterize(mu, sigma) #1, 192, 10, 23, 45
     
-        z = norm.permute(0, 2, 3,4, 1).reshape(B_vae, Pl_vae, -1, 192 * self.params.updown_scale_factor) #8, 10350, 384
-        # print("x shape after VAE reparameterize ", z.shape) # 2, 10, 1035, 384
+        z  = self._encode_vae(surface_in, upper_air_in)    
+  
         
         ###############encoder 1 start (deterministic) ########################
         surface_det = self.model_det.patchembed2d(surface_in)

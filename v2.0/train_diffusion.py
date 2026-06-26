@@ -66,7 +66,11 @@ class DiffusionTrainer(Trainer):
         if getattr(self.params, "log_to_wandb", False) and not self.wandb_enabled and self.world_rank == 0:
             logging.warning("W&B logging is enabled in config, but wandb.init() is not active. Skipping wandb.log calls.")
         
- 
+        temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
+        self.diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
+        self.last_path = os.path.join(temp_path, "last_ckpt.tar")
+        
+        
     def _reload_vae_checkpoint(self):
         """Explicitly load VAE and deterministic checkpoint weights into
         diff_model.encoder and diff_model.model_det respectively.
@@ -133,9 +137,7 @@ class DiffusionTrainer(Trainer):
             logging.warning("No training data loaders available.")
             return 0, 0, {"train_loss": 0.0}
 
-        # self.model.eval()
 
-        # pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             logging.debug(f"Processing year idx {year_idx}")
@@ -190,13 +192,11 @@ class DiffusionTrainer(Trainer):
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                         wandb.log(diagnostic_logs, step= self.iters)
                     if i>  2000 and i % 2000 == 0:
-                        temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
-                        diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
-                        last_path = os.path.join(temp_path, "last_ckpt.tar")
+
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
-                        self.save_checkpoint(diff_path, self.diff_model)
-                        self.save_checkpoint(last_path, self.diff_model)
-                        logging.info(f"Updated last checkpoint: {last_path}")
+                        self.save_checkpoint(self.diff_path, self.diff_model)
+                        self.save_checkpoint(self.last_path, self.diff_model)
+                        logging.info(f"Updated last checkpoint: {self.last_path}")
                         
         # pbar.close()
         # pbar.updac te(1)
@@ -205,16 +205,15 @@ class DiffusionTrainer(Trainer):
         
     def train_diff(self, epochs = 50):
         for epoch in range(epochs):
-            logs = self.training_one_epoch_diffusion()
-            if self.wandb_enabled:
-                wandb.log(logs, step = self.epoch)  
+            
+            # logs = self.training_one_epoch_diffusion()
+            # if self.wandb_enabled:
+            #     wandb.log(logs, step = self.epoch)  
 
             if self.world_rank == 0:
-                last_path = os.path.join(ckpt_dir, "diff_ckpt.tar")
                 self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
-                self.save_checkpoint(last_path, self.diff_model)
                 logging.info("Saved latest checkpoint: %s", self.params.checkpoint_path_diff)
-                logging.info("Saved last checkpoint alias: %s", last_path)
+                logging.info("Saved last checkpoint alias: %s", self.last_path)
             
             validation_interval = int(getattr(self.params, "validation_interval", 1))
             if validation_interval > 0 and (self.epoch % validation_interval == 0):
@@ -222,6 +221,8 @@ class DiffusionTrainer(Trainer):
 
 
     def validation_diffusion(self):
+        import xarray as xr
+
         self.diff_model.eval()
         valid_start = time.time()
 
@@ -230,7 +231,7 @@ class DiffusionTrainer(Trainer):
             self.diff_model.train()
             return {"valid_loss": float("nan")}
 
-        max_valid_batches = int(getattr(self.params, "valid_max_batches", 30))
+        max_valid_batches = int(getattr(self.params, "valid_max_batches", 10))
         total_valid_batches = len(self.valid_data_loader)
         if max_valid_batches > 0:
             total_valid_batches = min(total_valid_batches, max_valid_batches)
@@ -247,7 +248,13 @@ class DiffusionTrainer(Trainer):
                 if max_valid_batches > 0 and i >= max_valid_batches:
                     break
 
-                input_surface, input_upper_air, _, _, _, varying_boundary_data = self._prepare_inputs_batch(data)
+                # The validate=True data loader returns 7 items:
+                # surface, upper_air, tgt_surface, tgt_upper_air, tgt_diagnostic, boundary, times
+                # times shape: (B, 4) = [year, month, day, hour]
+                *fields, times = [x.to(self.device, dtype=torch.float32, non_blocking=True)
+                                  for x in data]
+                input_surface, input_upper_air = fields[0], fields[1]
+                varying_boundary_data = fields[5]
 
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
                     val_loss = self.diff_model.training_step(
@@ -262,6 +269,45 @@ class DiffusionTrainer(Trainer):
 
                 loss_sum += val_loss.detach().float()
                 step_count += 1.0
+
+                if i == 0 and self.world_rank == 0:
+                    t = times[0].long()
+                    init_time = self.valid_dataset.datetime_class(
+                        t[0].item(), t[1].item(), t[2].item(), hour=t[3].item())
+                    ts = init_time.strftime("%Y%m%d%H")
+
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        pred_surface, pred_upper_air, pred_diagnostic = self.diff_model.prediction(
+                            surface_in=input_surface[:1],
+                            constant_boundary=self.constant_boundary_data,
+                            varying_boundary=varying_boundary_data[:1],
+                            upper_air_in=input_upper_air[:1],
+                            num_samples=1,
+                            device=self.device,
+                            sampler = "ddim"
+                        )
+
+                    surf_np = self.valid_dataset.surface_inv_transform(
+                        pred_surface.float().cpu()).numpy()       # (1, C_s, H, W)
+                    ua_np = self.valid_dataset.upper_air_inv_transform(
+                        pred_upper_air.float().cpu()).numpy()     # (1, C_ua, Pl, H, W)
+                    diag_np = self.valid_dataset.diagnostic_inv_transform(
+                        pred_diagnostic.float().cpu()).numpy()    # (1, C_d, H, W)
+
+                    save_dir = os.path.join(self.params.experiment_dir, "val_predictions")
+                    os.makedirs(save_dir, exist_ok=True)
+                    save_path = os.path.join(
+                        save_dir, f"diffusion_pred_epoch{self.epoch:04d}_{ts}.nc")
+
+                    ds = xr.Dataset(attrs={"epoch": self.epoch, "init_time": str(init_time)})
+                    for idx, var in enumerate(self.valid_dataset.surface_variables):
+                        ds[var] = xr.DataArray(surf_np[0, idx], dims=["latitude", "longitude"])
+                    for idx, var in enumerate(self.valid_dataset.upper_air_variables):
+                        ds[var] = xr.DataArray(ua_np[0, idx], dims=["level", "latitude", "longitude"])
+                    for idx, var in enumerate(self.valid_dataset.diagnostic_variables):
+                        ds[var] = xr.DataArray(diag_np[0, idx], dims=["latitude", "longitude"])
+                    ds.to_netcdf(save_path)
+                    logging.info("Saved diffusion validation prediction -> %s", save_path)
 
         if dist.is_initialized():
             dist.all_reduce(loss_sum)
