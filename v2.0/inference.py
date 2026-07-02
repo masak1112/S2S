@@ -31,6 +31,11 @@ import uuid
 from utils.integrate import Integrator, forward_euler
 from train import Trainer
 from networks.vae import VAE
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import pandas as pd
 
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -176,33 +181,137 @@ class Stepper(Trainer):
         self.model_det = self.diff_model.model_det
         self.diff_model.freeze_encoder()
         
+    def _get_era5_t2m(self, year):
+        if not hasattr(self, '_era5_cache'):
+            self._era5_cache = {}
+        if year not in self._era5_cache:
+            era5_dir = getattr(self.params, 'era5_dir', '/project/pedramh/bing/era5')
+            fpath = os.path.join(era5_dir, f'{year}_180x360.nc')
+            if os.path.exists(fpath):
+                self._era5_cache[year] = xr.open_dataset(fpath, engine='netcdf4')
+            else:
+                self._era5_cache[year] = None
+                logging.warning(f'ERA5 file not found: {fpath}')
+        return self._era5_cache[year]
+
+    def _make_diagnostic_plots(self, diag_samples, savedir):
+        """Save one figure per lead time comparing GT vs two ensemble members for 3 ICs."""
+        var_name = '2m_temperature'
+        surf_vars = list(self.valid_dataset.surface_variables)
+        if var_name not in surf_vars:
+            logging.warning(f'{var_name} not in surface_variables, skipping diagnostic plots')
+            return
+
+        var_idx = surf_vars.index(var_name)
+        lead_days = [1, 5, 10, 15, 30]
+        timedelta_h = int(self.params['timedelta_hours'])
+
+        for lead_day in lead_days:
+            step = (lead_day * 24) // timedelta_h
+            if step > self.params['inference_steps']:
+                logging.info(f'Skipping diagnostic lead day {lead_day}: step {step} > inference_steps')
+                continue
+
+            panel_data = []
+            for sample in diag_samples:
+                start_time = sample['start_time']
+                ens0_arr = sample.get('ens0')
+                ens1_arr = sample.get('ens1')
+                if ens0_arr is None or ens1_arr is None:
+                    continue
+
+                pred_ens0 = ens0_arr[step, var_idx]
+                pred_ens1 = ens1_arr[step, var_idx]
+
+                # Load ERA5 ground truth at the valid time
+                valid_dt = start_time + timedelta(hours=step * timedelta_h)
+                year = valid_dt.year
+                era5_ds = self._get_era5_t2m(year)
+                if era5_ds is not None:
+                    ts = pd.Timestamp(valid_dt.year, valid_dt.month, valid_dt.day, valid_dt.hour)
+                    lat_name = 'lat' if 'lat' in era5_ds.dims else 'latitude'
+                    lon_name = 'lon' if 'lon' in era5_ds.dims else 'longitude'
+                    gt_arr = (era5_ds['2m_temperature']
+                              .sel(time=ts, method='nearest')
+                              .values)
+                    # Align ERA5 lat order with model output (both S→N)
+                    era5_lats = era5_ds[lat_name].values
+                    if era5_lats[0] > era5_lats[-1]:
+                        gt_arr = gt_arr[::-1]
+                else:
+                    gt_arr = np.full(pred_ens0.shape, np.nan)
+
+                ic_label = f"IC {start_time.strftime('%Y-%m-%d')}\nLead {lead_day}d"
+                panel_data.append((gt_arr, pred_ens0, pred_ens1, ic_label))
+
+            if not panel_data:
+                continue
+
+            all_vals = np.concatenate([
+                a.ravel() for triple in panel_data for a in triple[:3]
+                if not np.all(np.isnan(a))
+            ])
+            vmin = np.nanpercentile(all_vals, 2)
+            vmax = np.nanpercentile(all_vals, 98)
+
+            n_cols = len(panel_data)
+            fig = plt.figure(figsize=(5 * n_cols, 11))
+            gs = gridspec.GridSpec(4, n_cols, height_ratios=[1, 1, 1, 0.08],
+                                   hspace=0.4, wspace=0.05)
+            row_labels = ['Ground Truth', 'Ensemble Member 1', 'Ensemble Member 2']
+            im = None
+            for col, (gt_arr, pred_ens0, pred_ens1, ic_label) in enumerate(panel_data):
+                for row, arr in enumerate([gt_arr, pred_ens0, pred_ens1]):
+                    ax = fig.add_subplot(gs[row, col])
+                    im = ax.imshow(arr, cmap='RdBu_r', vmin=vmin, vmax=vmax,
+                                   aspect='auto', origin='lower')
+                    if row == 0:
+                        ax.set_title(ic_label, fontsize=9)
+                    ax.axis('off')
+                    if col == 0:
+                        ax.text(-0.08, 0.5, row_labels[row], transform=ax.transAxes,
+                                fontsize=10, va='center', ha='right', rotation=90)
+
+            if im is not None:
+                cbar_ax = fig.add_subplot(gs[3, :])
+                cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
+                cbar.set_label(f'{var_name} (K)', fontsize=10)
+
+            fig.suptitle(f'{var_name}  —  Lead {lead_day} days', fontsize=12)
+            fname = os.path.join(savedir, f'diag_{var_name}_lead{lead_day:02d}d.png')
+            fig.savefig(fname, dpi=120, bbox_inches='tight')
+            plt.close(fig)
+            logging.info(f'Saved diagnostic plot: {fname}')
+
     def predict(self):
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
         valid_time, valid_logs = self.validate_one_epoch()
-        
-        
+
+
     def validate_one_epoch(self):
         self.model_diff.eval()
         total_start = time.time()
 
+        # Use the first 3 initial conditions (first 3 samples of the first batch)
+        diag_selected = {(0, 0), (0, 1), (0, 2)}
+        # diag_store: (batch_idx, sample_idx) -> {start_time, ens0, ens1}
+        diag_store = {}
+
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
-            for i, data in enumerate(self.valid_data_loader, 0):
+            for batch_idx, data in enumerate(self.valid_data_loader, 0):
                 for ens_id in list(range(20)):
-     
-                    if self.params.has_diagnostic:
-                        val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
+
+
+                    val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
                             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    else:
-                        val_input_surface, val_input_upper_air, _, _, _, times = map(
-                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    
+
                     start_times = []
                     for i in range(times.shape[0]):  # Iterate over all samples in the batch
                         start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
                         start_times.append(start_time)
 
-                
+
                     val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
                                                     val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
                                                     dtype = np.float32)
@@ -214,32 +323,46 @@ class Stepper(Trainer):
                         val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
                                                         self.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
                                                         dtype = np.float32)
-                    
+
                     val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                     val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-                
+
 
                     ens_seed = ens_id * 10000
                     for time_step in range(self.params['inference_steps']):
                         seed = ens_seed + time_step
-
                         val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data,
                                                                     varying_boundary=val_varying_boundary_data[:,time_step],
                                                                     upper_air_in=val_input_upper_air, device=self.device, seed=seed)
                         val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
                         val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
-                    
+
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-                               
-                    self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
-        
-                
-        total_time = time.time() - total_start
 
-        # if self.params.log_to_wandb:
-        #     wandb.log(logs, step=self.epoch)
+                    self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+
+                    # Collect predictions for diagnostic plots (ens_id 0 and 1 only)
+                    if ens_id in (0, 1):
+                        for si in range(val_output_surface.shape[0]):
+                            key = (batch_idx, si)
+                            if key in diag_selected:
+                                if key not in diag_store:
+                                    diag_store[key] = {'start_time': start_times[si]}
+                                ens_key = f'ens{ens_id}'
+                                diag_store[key][ens_key] = val_output_surface[si].copy()
+
+                        # Generate plots as soon as both ensemble members are ready (after ens_id=1, first batch)
+                        if ens_id == 1 and batch_idx == 0:
+                            savedir = os.path.join(self.params['experiment_dir'], 'predictions')
+                            os.makedirs(savedir, exist_ok=True)
+                            ready = [v for v in diag_store.values() if 'ens0' in v and 'ens1' in v]
+                            if ready:
+                                self._make_diagnostic_plots(ready, savedir)
+
+        total_time = time.time() - total_start
         return total_time
+    
     
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_times, diagnostic_prediction = None, ens_id=None):
@@ -338,9 +461,7 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
-    ####### for UCAR
     parser.add_argument("--local-rank", type=int)
-    #######
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
