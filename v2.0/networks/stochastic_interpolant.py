@@ -150,15 +150,27 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         
     
     def training_step(self, surface_in, constant_boundary, varying_boundary,
-                      upper_air_in, train = True, plot_freq = 0,
+                      upper_air_in, target_surface_in=None, target_upper_air=None,
+                      train = True, plot_freq = 0,
                       plot_path = "noise_comparison.png", iter=0, lower_upper: tuple = (0.0001, 0.9999),
                       plot_scatter: bool = False, scatter_path: str = "scatter_pred_gt.png"):
 
-        """Single diffusion training step. Returns RMSE loss."""
+        """Single diffusion training step. Returns RMSE loss.
+
+        The SI is trained on the residual between the ground-truth t+1 latent
+        (encoded by the frozen deterministic Pangu encoder) and Pangu's own
+        smoothed mean-latent prediction, i.e. what Pangu's encoder misses.
+        """
         lower, upper = lower_upper[0], lower_upper[1]
 
+        if target_surface_in is None or target_upper_air is None:
+            raise ValueError(
+                "training_step requires target_surface_in/target_upper_air (ground-truth "
+                "t+1 fields) to form the Pangu-latent residual target."
+            )
 
         surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
+        target_surface = self._prepare_surface(target_surface_in, constant_boundary, varying_boundary)
         B = surface.size(0)
         device = surface.device
         ts  = lower + (upper - lower)*torch.rand(size=(B,), device=device)
@@ -167,12 +179,19 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         z = self._encode_vae(surface, upper_air_in)
         x, skip = self._encode_det(surface, upper_air_in, train=True)
 
+        # Ground-truth t+1 latent, encoded through the same frozen Pangu path.
+        with torch.no_grad():
+            x_true, _ = self._encode_det(target_surface, target_upper_air, train=False)
+
+        # What Pangu's mean-latent prediction misses.
+        residual = x_true - x
+
         #source and target distributions
-        base = self.sample_from_source(x, n_samples=B, reparam=True)
-        assert base.shape == x.shape, f"Expected shape of base noise to match x. Got {base.shape} and {x.shape}."
+        base = self.sample_from_source(residual, n_samples=B, reparam=True)
+        assert base.shape == residual.shape, f"Expected shape of base noise to match residual. Got {base.shape} and {residual.shape}."
 
 
-        target = x
+        target = residual
         It = self.I(x0=base, x1=target, t=ts)
         dIdt = self.dIdt(x0=base, x1=target, t=ts)
         It_p = It + self.gamma(ts)*torch.randn_like(It).to(device)
@@ -359,13 +378,13 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         
         x, skip = self._encode_det(surface_in, upper_air_in, train=False)
         target_latent_shape = x.shape
-        
+
         # if torch.isnan(x).any():
         #     print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
         # else:
-        #     print("[NaN check] x before diffusion : no NaN")     
-            
-        x = self.generate(
+        #     print("[NaN check] x before diffusion : no NaN")
+
+        residual = self.generate(
             model_diff=self.unet,
             z=z,
             x=x,
@@ -373,7 +392,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
             sample_shape=target_latent_shape,
             device=device,
         )
-        
+
+        # Add the SI-sampled residual back onto Pangu's mean-latent prediction
+        # before decoding, since the SI was trained on x_true - x_pangu.
+        x = x.repeat_interleave(num_samples, dim=0) + residual
+
         x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
         
         

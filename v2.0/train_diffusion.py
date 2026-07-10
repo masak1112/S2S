@@ -170,7 +170,10 @@ class DiffusionTrainer(Trainer):
                         loss = self.diff_model.training_step(surface_in = input_surface,
                                                              constant_boundary = self.constant_boundary_data,
                                                              varying_boundary = varying_boundary_data,
-                                                             upper_air_in = input_upper_air, plot_freq = 200, iter = self.iters,
+                                                             upper_air_in = input_upper_air,
+                                                             target_surface_in = target_surface,
+                                                             target_upper_air = target_upper_air,
+                                                             plot_freq = 200, iter = self.iters,
                                                              plot_scatter = do_scatter, scatter_path = scatter_path)
 
                     self.scaler.scale(loss).backward()
@@ -253,7 +256,7 @@ class DiffusionTrainer(Trainer):
                 if max_valid_batches > 0 and i >= max_valid_batches:
                     break
 
-                input_surface, input_upper_air, _, _, _, varying_boundary_data = self._prepare_inputs_batch(data)
+                input_surface, input_upper_air, target_surface, target_upper_air, _, varying_boundary_data = self._prepare_inputs_batch(data)
 
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
                     val_loss = self.diff_model.training_step(
@@ -261,6 +264,8 @@ class DiffusionTrainer(Trainer):
                         constant_boundary=self.constant_boundary_data,
                         varying_boundary=varying_boundary_data,
                         upper_air_in=input_upper_air,
+                        target_surface_in=target_surface,
+                        target_upper_air=target_upper_air,
                         train=False,
                         plot_freq=0,
                         iter=self.iters,
