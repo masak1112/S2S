@@ -14,6 +14,7 @@ import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from torch.utils.checkpoint import checkpoint
 
 Tensor = torch.Tensor
 
@@ -202,11 +203,14 @@ class CrossAttentionConditionFuse(nn.Module):
     
 
 class ConUNet_1degV2(nn.Module):
-    def __init__(self, dim_in, dim_cond, dim_out, c, c_mults=(1, 2, 4, 8), 
-                    resnet_block_groups=4, scale = [2,2,2], 
-                    is_guide=False, drop_prob=0.1, dropout=0.1):
+    def __init__(self, dim_in, dim_cond, dim_out, c, c_mults=(1, 2, 4, 8),
+                    resnet_block_groups=4, scale = [2,2,2],
+                    is_guide=False, drop_prob=0.1, dropout=0.1,
+                    checkpointing=0, use_reentrant=False):
         super().__init__()
-    
+
+        self.checkpointing = checkpointing
+        self.use_reentrant = use_reentrant
         self.init_conv = nn.Conv2d(dim_in, c, 1, padding=0)
         dims = [c*x for x in c_mults]
         self.drop_prob = drop_prob
@@ -268,8 +272,13 @@ class ConUNet_1degV2(nn.Module):
         self.cross_attn_mid = CrossAttentionConditionFuse(dim_x=mid_dim, dim_cond=mid_dim, heads=4, dim_head=32, pool_size=(8, 8))
 
 
+    def _maybe_checkpoint(self, block, x, t):
+        if self.checkpointing > 0 and self.training:
+            return checkpoint(block, x, t, use_reentrant=self.use_reentrant)
+        return block(x, t)
+
     def forward(self, x, cond, time):
-       
+
         t = self.time_mlp(time)
         # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
         cond_c = self.cond_to_c(cond)
@@ -281,34 +290,34 @@ class ConUNet_1degV2(nn.Module):
         r = x.clone()
         h = []
         for block1, block2, downsample in self.downs:
-            x = block1(x, t)
+            x = self._maybe_checkpoint(block1, x, t)
             h.append(x)
-            x = block2(x, t)
+            x = self._maybe_checkpoint(block2, x, t)
             h.append(x)
-            scale_factor = 2  
+            scale_factor = 2
             H, W = x.shape[2], x.shape[3]
             pad_h = (scale_factor - H % scale_factor) % scale_factor
             pad_w = (scale_factor - W % scale_factor) % scale_factor
             if pad_h or pad_w:
-                x = F.pad(x, (0, pad_w, 0, pad_h))  
+                x = F.pad(x, (0, pad_w, 0, pad_h))
             x = downsample(x)
 
-        x = self.mid_block1(x, t)
+        x = self._maybe_checkpoint(self.mid_block1, x, t)
         cond_mid = self.cond_to_mid(cond_c)
         x = self.cross_attn_mid(x, cond_mid)
-        x = self.mid_block2(x, t)
+        x = self._maybe_checkpoint(self.mid_block2, x, t)
 
         for block1, block2, upsample in self.ups:
             skip = h.pop()
             if x.shape[2] != skip.shape[2] or x.shape[3] != skip.shape[3]:
                 x = x[:, :, :skip.shape[2], :skip.shape[3]]
             x = torch.cat((x, skip), dim=1)
-            x = block1(x, t)
+            x = self._maybe_checkpoint(block1, x, t)
             skip = h.pop()
             if x.shape[2] != skip.shape[2] or x.shape[3] != skip.shape[3]:
                 x = x[:, :, :skip.shape[2], :skip.shape[3]]
             x = torch.cat((x, skip), dim=1)
-            x = block2(x, t)
+            x = self._maybe_checkpoint(block2, x, t)
             x = upsample(x)
 
         x = torch.cat((x, r), dim=1)
@@ -661,7 +670,9 @@ class ConditionalDiffusionModel(nn.Module):
         self.freeze_encoder()
         self._encoder_param_checksums = self._snapshot_encoder_params()
         self.unet = ConUNet_1degV2(dim_in =10, dim_cond=2, dim_out=10, c = 64,
-                                   c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4)
+                                   c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4,
+                                   checkpointing=getattr(params, 'checkpointing', 0),
+                                   use_reentrant=getattr(params, 'use_reentrant', False))
 
         self.scheduler_diff = DDPMScheduler(T=T)
         self.scheduler_ddim = DDIMScheduler(

@@ -67,6 +67,8 @@ import cftime
 from datetime import timedelta
 import xarray as xr
 import warnings
+import datetime
+import pandas as pd
 
 def get_data_given_path(path, variables):
     with h5py.File(path, 'r') as f:
@@ -108,6 +110,26 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
     else:
         return dataloader, dataset
 
+
+
+def get_initialization_dates(year):
+    """
+    Get initialization dates (Calendar dates corresponding to 
+    Mondays and Thursdays of 2024 May-July) for a given year.
+    """
+    # Define date range from May 1 to July 31 of 2024 (template)
+    start_date = datetime.datetime(2024, 5, 1)
+    end_date = datetime.datetime(2024, 7, 31)
+    date_range = pd.date_range(start_date, end_date, freq='D')
+    
+    # Find Mondays (weekday=0) and Thursdays (weekday=3)
+    is_monday = date_range.weekday == 0
+    is_thursday = date_range.weekday == 3
+    filtered_dates = date_range[is_monday | is_thursday]
+    
+    # Convert to the requested year
+    filtered_dates_yr = pd.to_datetime(filtered_dates.strftime(f'{year}-%m-%d'))
+    return filtered_dates_yr
 
 class GetDataset(Dataset):
     def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False):
@@ -241,6 +263,13 @@ class GetDataset(Dataset):
 
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
+            
+        if self.params.sel_dates and not self.train:
+            years = [2019,2020,2021,2022,2023,2024]
+            self.dates_all = []
+            for year in years:
+                dates= get_initialization_dates(year)   
+                self.dates_all.extend(dates)
 
     def _get_variable_list(self, level_units = '.0'):
         self.variable_list_out = []
@@ -464,8 +493,11 @@ class GetDataset(Dataset):
         
         # Condition for autoregression
         elif lead_times:
-
-            start_time = self.start_date + timedelta(hours=self.dates[index])
+            if self.params.sel_dates:
+                start_time = self.dates_all[index]
+                print("start_time",start_time)
+            else:
+                start_time = self.start_date + timedelta(hours=self.dates[index])
 
             # Load initial conditions
             data_in = self._get_data(start_time, out = False)

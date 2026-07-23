@@ -298,11 +298,12 @@ class Stepper(Trainer):
         # diag_store: (batch_idx, sample_idx) -> {start_time, ens0, ens1}
         diag_store = {}
 
+        # Accumulate all member outputs for batch 0 to measure spread growth per step.
+        spread_tracker = []  # list of (steps+1, vars, lat, lon) arrays, one per member
+
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for batch_idx, data in enumerate(self.valid_data_loader, 0):
-                for ens_id in list(range(20)):
-
-
+                for ens_id in list(range(0, 50)):
                     val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
                             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
@@ -328,19 +329,33 @@ class Stepper(Trainer):
                     val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
 
-                    ens_seed = ens_id * 10000
+                    ic_noise_std = getattr(self.params, 'ic_noise_std', 0.02)
+
+                    # t=0 IC perturbation, scaled per-variable (member 0 = control)
+                    if ens_id > 0 and ic_noise_std > 0.0:
+                        surf_scale = val_input_surface.std(dim=(-2, -1), keepdim=True)
+                        ua_scale   = val_input_upper_air.std(dim=(-2, -1), keepdim=True)
+                        val_input_surface   = val_input_surface   + ic_noise_std * surf_scale * torch.randn_like(val_input_surface)
+                        val_input_upper_air = val_input_upper_air + ic_noise_std * ua_scale   * torch.randn_like(val_input_upper_air)
+
                     for time_step in range(self.params['inference_steps']):
-                        seed = ens_seed + time_step
                         val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data,
                                                                     varying_boundary=val_varying_boundary_data[:,time_step],
-                                                                    upper_air_in=val_input_upper_air, device=self.device, seed=seed)
+                                                                    upper_air_in=val_input_upper_air, device=self.device,
+                                                                    mc_dropout=True, temperature=1.3)
                         val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
                         val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
 
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                         val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
-                    self.save_prediction(val_output_surface, val_output_upper_air, start_times, ens_id=ens_id)
+                    self.save_prediction(val_output_surface, val_output_upper_air, start_times,
+                                         diagnostic_prediction=val_output_diagnostic if self.params.has_diagnostic else None,
+                                         ens_id=ens_id)
+
+                    # Track spread across members for the first sample of batch 0.
+                    if batch_idx == 0:
+                        spread_tracker.append(val_output_surface[0])  # (steps+1, vars, lat, lon)
 
                     # Collect predictions for diagnostic plots (ens_id 0 and 1 only)
                     if ens_id in (0, 1):
@@ -359,6 +374,17 @@ class Stepper(Trainer):
                             ready = [v for v in diag_store.values() if 'ens0' in v and 'ens1' in v]
                             if ready:
                                 self._make_diagnostic_plots(ready, savedir)
+
+                # After all members done for batch 0: print spread per step per variable.
+                if batch_idx == 0 and len(spread_tracker) > 1:
+                    ens_array = np.stack(spread_tracker, axis=0)  # (n_members, steps+1, vars, lat, lon)
+                    surf_vars = list(self.valid_dataset.surface_variables)
+                    print("\n[Spread diagnostic] Ensemble std per lead step (sample 0, batch 0):")
+                    print(f"  {'Step':>5}  " + "  ".join(f"{v[:12]:>12}" for v in surf_vars))
+                    for step in range(ens_array.shape[1]):
+                        std_per_var = ens_array[:, step].std(axis=0).mean(axis=(-2, -1))  # (vars,)
+                        print(f"  {step:>5}  " + "  ".join(f"{s:>12.4f}" for s in std_per_var))
+                    print()
 
         total_time = time.time() - total_start
         return total_time

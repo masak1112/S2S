@@ -11,6 +11,7 @@ base_config: &BASE
   oc_final_div_factor: 0.00025
   log_to_screen: !!bool True
   log_to_wandb: !!bool True
+  wandb_offline: !!bool False
   save_checkpoint: !!bool True
   optimizer_type: 'Adam' #'FusedAdam'
   plot_animations: !!bool False
@@ -35,15 +36,15 @@ base_config: &BASE
   # checkpoint_path_vae_c1: "/net/monsoon/bing/SI/PanguWeather/SI_checkpoints/c1/ckpt.tar"
   # checkpoint_path_det: "/net/monsoon/bing/SI/PanguWeather/SI_checkpoints/determinstic/ckpt.tar"
   # checkpoint_path_diff: "/net/monsoon/bing/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/last_ckpt.tar"
-  checkpoint_path_vae_c1: "/project/pedramh/bing/SI/S2S/SI_checkpoints/c1/ckpt.tar"
-  checkpoint_path_det: "/project/pedramh/bing/SI/S2S/SI_checkpoints/determinstic/ckpt.tar"
-  checkpoint_path_diff: "/project/pedramh/bing/SI/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/last_ckpt.tar"
+  checkpoint_path_vae_c1: "/data/bing/S2S/checkpoints/c1/ckpt.tar"
+  checkpoint_path_det: "/data/bing/S2S/checkpoints/determinstic/ckpt.tar"
+  checkpoint_path_diff: "/data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/last_ckpt.tar"
 
 S2S: &S2S
   <<: *BASE
   #data_dir: '/glade/campaign/univ/uchi0014/yqsun/pangu_s2s/h5data'
   # data_dir : '/net/monsoon/S2S/h5data0'
-  data_dir: '/project/pedramh/h5data/h5data'
+  data_dir: '/data/ERA5'
   #data_dir: "/scratch/08198/tg874973/pangu-s2s/h5data"
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
@@ -64,10 +65,10 @@ S2S: &S2S
               'sea_ice_cover': 0.,
               'snow_depth': 0.}
   mask_output: False
-  train_year_start: 1979
-  train_year_end: 1980
-  val_year_start: 1979  #2020
-  val_year_end: 1979 #2021
+  train_year_start: 1984
+  train_year_end: 2018
+  val_year_start: 2018
+  val_year_end: 2019
   data_timedelta_hours: 6
   surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
   surface_std: 'pangu_s2s_1979-2018_surface_std.nc'
@@ -108,8 +109,11 @@ S2S: &S2S
   diagnostic_spectra: False
   forecast_lead_times: [1, 2, 10, 15, 45] # 3, 5, 10, 15,4
   diagnostic_logs: True
-  dropout_rate: 0
-
+  dropout_rate: 0.1
+  ic_noise_std: 0.02        # IC perturbation amplitude (fraction of per-variable std)
+  step_noise_std: 0.005     # per-step base noise amplitude
+  step_noise_growth: 'sqrt' # spread growth model: 'sqrt' | 'linear' | 'none'
+  sel_dates: True
   lev: 'plev'
   num_inferences: 10000
 

@@ -35,7 +35,7 @@ from networks.vae import VAE
         
 
 class StochasticInterpolant(ConditionalDiffusionModel):
-    def __init__(self, path='linear', gamma_type='zero', **kwargs):
+    def __init__(self, path='linear', gamma_type='brownian', **kwargs):
         super(StochasticInterpolant, self).__init__(**kwargs)
         self.path = path
         self.gamma_type = gamma_type
@@ -107,42 +107,33 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         return self.alpha_dot(t) * x0 + self.beta_dot(t) * x1       
         
     
-    def source_distribution(self, x: torch.Tensor):
-        """Return a standard Gaussian distribution N(0, I) with the same shape as `x`.
+    def source_distribution(self, x: torch.Tensor, sigma: float = 1.0):
+        """Return N(0, sigma*I) with the same shape as `x`.
 
-        Args:
-            x: tensor used only to determine shape, device, and dtype (B, ...).
-            t: unused (kept for API compatibility).
-            sigma: unused (kept for API compatibility).
-
-        Returns:
-            A torch.distributions.Independent Normal distribution with mean 0
-            and unit variance over all non-batch dimensions.
+        Setting sigma to the empirical std of the residual distribution ensures
+        the source and target have matched scale, so the SI flow transports
+        meaningful variance rather than mapping large noise -> near-zero residual.
         """
         normal = torch.distributions.Normal(
             loc=torch.zeros_like(x),
-            scale=torch.ones_like(x),
+            scale=torch.full_like(x, sigma),
         )
         dist = torch.distributions.Independent(normal, reinterpreted_batch_ndims=x.dim() - 1)
         return dist
 
-    def sample_from_source(self, x: torch.Tensor, 
+    def sample_from_source(self, x: torch.Tensor,
                            n_samples: int = 1,
-                           reparam: bool = True) -> torch.Tensor:
-        
-        """Draw samples from the source distribution centered at `x`.
+                           reparam: bool = True,
+                           sigma: float = 1.0) -> torch.Tensor:
+        """Draw samples from N(0, sigma*I) with the same shape as `x`.
 
         Args:
-            x: latent tensor (B, ...)
-            t: optional time(s) to derive scale via `gamma(t)`
-            sigma: optional scale override
-            n_samples: number of independent samples to draw per batch item
-            reparam: if True use `rsample` (reparameterized); otherwise use `sample`.
-
-        Returns:
-            Tensor of shape `(n_samples, B, ...)` if `n_samples>1`, else `(B, ...)`.
+            x:         reference tensor for shape/device/dtype.
+            n_samples: number of independent samples per batch item.
+            reparam:   use rsample (reparameterized) if True.
+            sigma:     source distribution std; match to residual std for best spread.
         """
-        dist = self.source_distribution(x)
+        dist = self.source_distribution(x, sigma=sigma)
         if n_samples is None or n_samples <= 1:
             return dist.rsample() if reparam else dist.sample()
         samples = dist.rsample((n_samples,)) if reparam else dist.sample((n_samples,))
@@ -186,10 +177,15 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # What Pangu's mean-latent prediction misses.
         residual = x_true - x
 
-        #source and target distributions
-        base = self.sample_from_source(residual, n_samples=B, reparam=True)
-        assert base.shape == residual.shape, f"Expected shape of base noise to match residual. Got {base.shape} and {residual.shape}."
+        # Source sigma matched to residual scale so the flow transports meaningful
+        # variance. Using N(0,I) as source when residual_std << 1 causes the SI to
+        # learn a near-zero trivial mapping, collapsing ensemble spread.
+        residual_sigma = residual.std().item()
+        if torch.rand(1).item() < 0.01:
+            print(f"[SI spread diag] residual std={residual_sigma:.4f}  x_true std={x_true.std().item():.4f}  ratio={residual_sigma/max(x_true.std().item(),1e-6):.3f}")
 
+        base = self.sample_from_source(residual, n_samples=B, reparam=True, sigma=residual_sigma)
+        assert base.shape == residual.shape, f"Expected shape of base noise to match residual. Got {base.shape} and {residual.shape}."
 
         target = residual
         It = self.I(x0=base, x1=target, t=ts)
@@ -248,13 +244,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         plt.close(fig)
     
     
-    def step_forward(self, x, drift, dt, g, eps = torch.tensor(0.99)):
+    def step_forward(self, x, drift, dt, g, eps = torch.tensor(1.5)):
         """
         Perform one step of the forward SDE: x_{t+dt} = x_t + drift*dt + squire(dt)*gamma(t)*eps, where dW ~ N(0, dt).
         """
         dW = torch.sqrt(dt)*torch.randn_like(x, device=x.device)
-        #This is from Anthony
-        #x = x + dt*drift + g*dW
     
         x = x + dt*drift + torch.sqrt(2*eps) * dW
         return x
@@ -269,8 +263,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         z: torch.Tensor= None,
         num_samples: int = 1,
         sample_shape: tuple | None = None,
-        device =  None, 
+        device =  None,
         x = None,
+        temperature: float = 1.0,
+        mc_dropout: bool = False,
+        source_sigma: float = 1.0,
     ) -> torch.Tensor:
         """
         Generate images conditioned on a source image's VAE encoding.
@@ -278,10 +275,12 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         Args:
             z: conditional information
             num_samples:     how many samples to draw per condition
-            use_mean:        if True use mu (deterministic), else sample z
             x: the latent space from deterministic encoder
+            temperature:     additional scale on top of source_sigma; >1.0 increases spread
+            mc_dropout:      if True, keep UNet dropout active during sampling for MC dropout
+            source_sigma:    std of source N(0, sigma*I); set to empirical residual std
+                             so source and target distributions have matched scale
         """
-        # Repeat condition for num_samples
         z = z.repeat_interleave(num_samples, dim=0)
         assert x.shape == sample_shape
         if sample_shape is None:
@@ -295,8 +294,10 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                 raise ValueError(f"sample_shape must have 3 or 4 dims, got {sample_shape}")
 
         shape = (z.size(0), C, H, W)
-    
-        output = self.sample(model = model_diff, shape = shape, x = x, cond = z, device = device)
+
+        output = self.sample(model=model_diff, shape=shape, x=x, cond=z, device=device,
+                             temperature=temperature, mc_dropout=mc_dropout,
+                             source_sigma=source_sigma)
         return output
 
 
@@ -311,21 +312,32 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         start_end  = (0, 1),
         x = None,
         show_progress: bool = True,
+        temperature: float = 1.0,
+        mc_dropout: bool = False,
+        source_sigma: float = 1.0,
     ) -> torch.Tensor:
         """Full reverse diffusion loop."""
         shape = x.shape
-        x = self.sample_from_source(x, n_samples=shape[0], reparam=True).to(device)
-       
+        x = self.sample_from_source(x, n_samples=shape[0], reparam=True,
+                                    sigma=source_sigma).to(device) * temperature
+
+        # MC dropout: put only the UNet in train mode so dropout is active;
+        # frozen encoders stay in eval mode (guaranteed by ConditionalDiffusionModel.train()).
+        if mc_dropout:
+            model.train()
+
         self.start, self.end = start_end[0], start_end[1]
         self.ts = torch.linspace(self.start, self.end, T)
-        
-        
+
         for ii, t in enumerate(self.ts[:-1]):
                 t_current = self.ts[ii]
-                t_next = self.ts[ii+1] 
-                dt = t_next - t_current 
-                x = self.p_sample(model = model, x_t = x, t = t, cond =cond, dt = dt)
-                
+                t_next = self.ts[ii+1]
+                dt = t_next - t_current
+                x = self.p_sample(model=model, x_t=x, t=t, cond=cond, dt=dt)
+
+        if mc_dropout:
+            model.eval()
+
         return x
 
     @torch.no_grad()
@@ -337,7 +349,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         cond: torch.Tensor,
         dt: torch.Tensor
     ) -> torch.Tensor:
-        
+
         # Ensure time and dt tensors are on the same device as x_t
         t = t.to(x_t.device)
         dt = dt.to(x_t.device)
@@ -349,7 +361,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
     def prediction(self, surface_in, constant_boundary,
                    varying_boundary, upper_air_in,
-                   num_samples = 1, device = None, seed = None):
+                   num_samples = 1, device = None, seed = None, temperature: float = 1.3,
+                   mc_dropout: bool = False):
         
         if seed is not None:
             torch.manual_seed(seed)
@@ -368,21 +381,26 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         #######VAE ENCODER START ########
 
     
-        z  = self._encode_vae(surface_in, upper_air_in)    
+        z  = self._encode_vae(surface_in, upper_air_in)
+
+        # Enable Pangu dropout for MC dropout inference (parameters stay frozen).
+        if mc_dropout:
+            self.model_det.train()
 
         ###############encoder 1 start (deterministic) ########################
         surface_det = self.model_det.patchembed2d(surface_in)
         upper_air_det = self.model_det.patchembed3d(upper_air_in)
         x = torch.concat([upper_air_det, surface_det.unsqueeze(2)], dim=2)
         _, _, Pl_det, Lat, Lon = x.shape
-        
+
         x, skip = self._encode_det(surface_in, upper_air_in, train=False)
         target_latent_shape = x.shape
 
-        # if torch.isnan(x).any():
-        #     print(f"[NaN check] x before diffusion has NaN: {torch.isnan(x).sum().item()} NaNs")
-        # else:
-        #     print("[NaN check] x before diffusion : no NaN")
+        # Estimate the source sigma from the latent std so training/inference are
+        # consistent: during training source_sigma = residual.std(); here we use
+        # x.std() as a proxy (same order of magnitude as residual at short lead).
+        # Exposed as a param so it can be overridden from the config.
+        source_sigma = float(getattr(self.params, 'source_sigma', x.std().item()))
 
         residual = self.generate(
             model_diff=self.unet,
@@ -391,10 +409,12 @@ class StochasticInterpolant(ConditionalDiffusionModel):
             num_samples=num_samples,
             sample_shape=target_latent_shape,
             device=device,
+            temperature=temperature,
+            mc_dropout=mc_dropout,
+            source_sigma=source_sigma,
         )
 
-        # Add the SI-sampled residual back onto Pangu's mean-latent prediction
-        # before decoding, since the SI was trained on x_true - x_pangu.
+        # Add the SI-sampled residual back onto Pangu's mean-latent prediction.
         x = x.repeat_interleave(num_samples, dim=0) + residual
 
         x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
@@ -418,7 +438,9 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
             output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
 
-        
+        if mc_dropout:
+            self.model_det.eval()
+
         return output_surface, output_upper_air, output_diagnostic 
         
         

@@ -1,0 +1,2375 @@
+nohup: ignoring input
+nvidia-smi
+NUM_TASKS_PER_NODE= 4
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launch.py:208: FutureWarning: The module torch.distributed.launch is deprecated
+and will be removed in future. Use torchrun.
+Note that --use-env is set by default in torchrun.
+If your script expects `--local-rank` argument to be set, please
+change it to read from `os.environ['LOCAL_RANK']` instead. See 
+https://pytorch.org/docs/stable/distributed.html#launch-utility for 
+further instructions
+
+  main()
+W0722 01:19:18.151000 496086 site-packages/torch/distributed/run.py:792] 
+W0722 01:19:18.151000 496086 site-packages/torch/distributed/run.py:792] *****************************************
+W0722 01:19:18.151000 496086 site-packages/torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0722 01:19:18.151000 496086 site-packages/torch/distributed/run.py:792] *****************************************
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2026-07-22 01:19:21,503 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-22 01:19:21,592 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-22 01:19:21,615 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-22 01:19:21,687 - root - INFO - Torch version: 2.6.0+cu124
+World rank: 3
+Has diagnostic: True
+World size from OS: 4
+World rank: 0
+Has diagnostic: True
+World size from OS: 4
+World rank: 2
+Has diagnostic: True
+World size from OS: 4
+World rank: 1
+Has diagnostic: True
+World size from OS: 4
+World size from Cuda: 4
+4
+##########WORLD RANK: TESTING  3
+World size from Cuda: 4World size from Cuda: 4
+4
+
+4
+##########WORLD RANK: TESTING ##########WORLD RANK: TESTING   02
+
+2026-07-22 01:19:25,338 - root - INFO - --------------- Versions ---------------
+2026-07-22 01:19:25,340 - root - INFO - Torch: 2.6.0+cu124
+2026-07-22 01:19:25,340 - root - INFO - ----------------------------------------
+2026-07-22 01:19:25,340 - root - INFO - ------------------ Configuration ------------------
+2026-07-22 01:19:25,340 - root - INFO - Configuration file: /data/bing/S2S/v2.0/config/exp16_nvidia.yaml
+2026-07-22 01:19:25,340 - root - INFO - Configuration name: S2S
+2026-07-22 01:19:25,340 - root - INFO - data_dir /data/ERA5
+2026-07-22 01:19:25,340 - root - INFO - upper_air_variables ['temperature', 'u_component_of_wind', 'v_component_of_wind', 'specific_humidity', 'geopotential']
+2026-07-22 01:19:25,340 - root - INFO - surface_variables ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind', 'mean_sea_level_pressure', 'surface_pressure']
+2026-07-22 01:19:25,340 - root - INFO - diagnostic_variables ['total_precipitation_24hr', 'mean_top_net_long_wave_radiation_flux']
+2026-07-22 01:19:25,340 - root - INFO - land_variables ['volumetric_soil_water_layer_1', 'soil_temperature_level_1', 'skin_temperature']
+2026-07-22 01:19:25,340 - root - INFO - ocean_variables ['sea_surface_temperature']
+2026-07-22 01:19:25,340 - root - INFO - constant_boundary_variables ['land_sea_mask', 'geopotential_at_surface']
+2026-07-22 01:19:25,340 - root - INFO - varying_boundary_variables ['toa_incident_solar_radiation']
+2026-07-22 01:19:25,340 - root - INFO - mask_fill {'volumetric_soil_water_layer_1': 0.0, 'soil_temperature_level_1': 270.0, 'skin_temperature': 270.0, 'sea_surface_temperature': 270.0, 'sea_ice_cover': 0.0, 'snow_depth': 0.0}
+2026-07-22 01:19:25,341 - root - INFO - mask_output False
+2026-07-22 01:19:25,341 - root - INFO - train_year_start 1983
+2026-07-22 01:19:25,341 - root - INFO - train_year_end 2018
+2026-07-22 01:19:25,341 - root - INFO - val_year_start 2018
+2026-07-22 01:19:25,341 - root - INFO - val_year_end 2019
+2026-07-22 01:19:25,341 - root - INFO - data_timedelta_hours 6
+2026-07-22 01:19:25,341 - root - INFO - surface_mean pangu_s2s_1979-2018_surface_mean.nc
+2026-07-22 01:19:25,341 - root - INFO - surface_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-22 01:19:25,341 - root - INFO - surface_ff_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-22 01:19:25,341 - root - INFO - upper_air_mean pangu_s2s_1979-2018_mean.nc
+2026-07-22 01:19:25,341 - root - INFO - upper_air_std pangu_s2s_1979-2018_std.nc
+2026-07-22 01:19:25,341 - root - INFO - upper_air_ff_std pangu_s2s_1979-2018_std.nc
+2026-07-22 01:19:25,341 - root - INFO - boundary_mean pangu_s2s_1979-2018_surface_mean.nc
+2026-07-22 01:19:25,341 - root - INFO - boundary_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-22 01:19:25,341 - root - INFO - diagnostic_mean pangu_s2s_1979-2018_surface_mean.nc
+2026-07-22 01:19:25,341 - root - INFO - diagnostic_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-22 01:19:25,341 - root - INFO - climatology_file 1979-2018_mean_climatology.nc
+2026-07-22 01:19:25,341 - root - INFO - calendar standard
+2026-07-22 01:19:25,341 - root - INFO - timedelta_hours 24
+2026-07-22 01:19:25,341 - root - INFO - batch_size 1
+2026-07-22 01:19:25,341 - root - INFO - max_epochs 200
+2026-07-22 01:19:25,342 - root - INFO - has_year_zero False
+2026-07-22 01:19:25,342 - root - INFO - num_levels 17upper_air_boundary
+2026-07-22 01:19:25,342 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-07-22 01:19:25,342 - root - INFO - horizontal_resolution [180, 360]
+2026-07-22 01:19:25,342 - root - INFO - depths [2, 6, 6, 2]
+2026-07-22 01:19:25,342 - root - INFO - predict_delta False
+2026-07-22 01:19:25,342 - root - INFO - patch_size [2, 4, 4]
+2026-07-22 01:19:25,342 - root - INFO - updown_scale_factor 2
+2026-07-22 01:19:25,342 - root - INFO - window_size [2, 6, 12]
+2026-07-22 01:19:25,342 - root - INFO - epsilon_factor 0
+2026-07-22 01:19:25,342 - root - INFO - upper_air_boundary False
+2026-07-22 01:19:25,342 - root - INFO - subpixel_deconv True
+2026-07-22 01:19:25,342 - root - INFO - recovery_head True
+2026-07-22 01:19:25,342 - root - INFO - diagnostic_head False
+2026-07-22 01:19:25,342 - root - INFO - vertical_windowing True
+2026-07-22 01:19:25,342 - root - INFO - train_year_to_year False
+2026-07-22 01:19:25,342 - root - INFO - diagnostic_acc False
+2026-07-22 01:19:25,342 - root - INFO - diagnostic_gif False
+2026-07-22 01:19:25,342 - root - INFO - diagnostic_spectra False
+2026-07-22 01:19:25,342 - root - INFO - forecast_lead_times [1, 2, 10, 15, 45]
+2026-07-22 01:19:25,342 - root - INFO - diagnostic_logs True
+2026-07-22 01:19:25,343 - root - INFO - dropout_rate 0
+2026-07-22 01:19:25,343 - root - INFO - sel_dates True
+2026-07-22 01:19:25,343 - root - INFO - lev plev
+2026-07-22 01:19:25,343 - root - INFO - num_inferences 10000
+2026-07-22 01:19:25,343 - root - INFO - use_reentrant False
+2026-07-22 01:19:25,343 - root - INFO - checkpointing 2
+2026-07-22 01:19:25,343 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-07-22 01:19:25,343 - root - INFO - lon [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0, 47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0, 61.0, 62.0, 63.0, 64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0, 79.0, 80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0, 138.0, 139.0, 140.0, 141.0, 142.0, 143.0, 144.0, 145.0, 146.0, 147.0, 148.0, 149.0, 150.0, 151.0, 152.0, 153.0, 154.0, 155.0, 156.0, 157.0, 158.0, 159.0, 160.0, 161.0, 162.0, 163.0, 164.0, 165.0, 166.0, 167.0, 168.0, 169.0, 170.0, 171.0, 172.0, 173.0, 174.0, 175.0, 176.0, 177.0, 178.0, 179.0, 180.0, 181.0, 182.0, 183.0, 184.0, 185.0, 186.0, 187.0, 188.0, 189.0, 190.0, 191.0, 192.0, 193.0, 194.0, 195.0, 196.0, 197.0, 198.0, 199.0, 200.0, 201.0, 202.0, 203.0, 204.0, 205.0, 206.0, 207.0, 208.0, 209.0, 210.0, 211.0, 212.0, 213.0, 214.0, 215.0, 216.0, 217.0, 218.0, 219.0, 220.0, 221.0, 222.0, 223.0, 224.0, 225.0, 226.0, 227.0, 228.0, 229.0, 230.0, 231.0, 232.0, 233.0, 234.0, 235.0, 236.0, 237.0, 238.0, 239.0, 240.0, 241.0, 242.0, 243.0, 244.0, 245.0, 246.0, 247.0, 248.0, 249.0, 250.0, 251.0, 252.0, 253.0, 254.0, 255.0, 256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0, 268.0, 269.0, 270.0, 271.0, 272.0, 273.0, 274.0, 275.0, 276.0, 277.0, 278.0, 279.0, 280.0, 281.0, 282.0, 283.0, 284.0, 285.0, 286.0, 287.0, 288.0, 289.0, 290.0, 291.0, 292.0, 293.0, 294.0, 295.0, 296.0, 297.0, 298.0, 299.0, 300.0, 301.0, 302.0, 303.0, 304.0, 305.0, 306.0, 307.0, 308.0, 309.0, 310.0, 311.0, 312.0, 313.0, 314.0, 315.0, 316.0, 317.0, 318.0, 319.0, 320.0, 321.0, 322.0, 323.0, 324.0, 325.0, 326.0, 327.0, 328.0, 329.0, 330.0, 331.0, 332.0, 333.0, 334.0, 335.0, 336.0, 337.0, 338.0, 339.0, 340.0, 341.0, 342.0, 343.0, 344.0, 345.0, 346.0, 347.0, 348.0, 349.0, 350.0, 351.0, 352.0, 353.0, 354.0, 355.0, 356.0, 357.0, 358.0, 359.0]
+2026-07-22 01:19:25,343 - root - INFO - loss weightedl1
+2026-07-22 01:19:25,343 - root - INFO - lr 0.0001
+2026-07-22 01:19:25,343 - root - INFO - weight_decay 3e-06
+2026-07-22 01:19:25,343 - root - INFO - scheduler CosineAnnealingLR
+2026-07-22 01:19:25,343 - root - INFO - num_data_workers 1
+2026-07-22 01:19:25,343 - root - INFO - oc_pct_start 0.1
+2026-07-22 01:19:25,343 - root - INFO - oc_div_factor 100000.0
+2026-07-22 01:19:25,343 - root - INFO - oc_final_div_factor 0.00025
+2026-07-22 01:19:25,343 - root - INFO - log_to_screen True
+2026-07-22 01:19:25,343 - root - INFO - log_to_wandb True
+2026-07-22 01:19:25,343 - root - INFO - wandb_offline False
+2026-07-22 01:19:25,344 - root - INFO - save_checkpoint True
+2026-07-22 01:19:25,344 - root - INFO - optimizer_type Adam
+2026-07-22 01:19:25,344 - root - INFO - plot_animations False
+2026-07-22 01:19:25,344 - root - INFO - nettype pangu_plasim
+2026-07-22 01:19:25,344 - root - INFO - group Pangu_plasim_S2S
+2026-07-22 01:19:25,344 - root - INFO - exp_dir results
+2026-07-22 01:19:25,344 - root - INFO - fresh_start False
+2026-07-22 01:19:25,344 - root - INFO - use_transformer_engine False
+2026-07-22 01:19:25,344 - root - INFO - early_stopping False
+2026-07-22 01:19:25,344 - root - INFO - project Pangu
+2026-07-22 01:19:25,344 - root - INFO - name S2S_si_c1
+2026-07-22 01:19:25,344 - root - INFO - entity proj-ai-weather
+2026-07-22 01:19:25,344 - root - INFO - vae_loss True
+2026-07-22 01:19:25,344 - root - INFO - vae_loss_weight 0.01
+2026-07-22 01:19:25,344 - root - INFO - mode train
+2026-07-22 01:19:25,344 - root - INFO - diffusion_model_type SI
+2026-07-22 01:19:25,344 - root - INFO - num_ensemble_members 1
+2026-07-22 01:19:25,344 - root - INFO - component 8
+2026-07-22 01:19:25,344 - root - INFO - base_channels 2
+2026-07-22 01:19:25,344 - root - INFO - z_channels 2
+2026-07-22 01:19:25,344 - root - INFO - test_iterations 10000000000
+2026-07-22 01:19:25,344 - root - INFO - checkpoint_path_vae_c1 /data/bing/S2S/checkpoints/c1/ckpt.tar
+2026-07-22 01:19:25,344 - root - INFO - checkpoint_path_det /data/bing/S2S/checkpoints/determinstic/ckpt.tar
+2026-07-22 01:19:25,345 - root - INFO - checkpoint_path_diff /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/last_ckpt.tar
+2026-07-22 01:19:25,345 - root - INFO - run_iter 1
+2026-07-22 01:19:25,345 - root - INFO - has_diagnostic True
+2026-07-22 01:19:25,345 - root - INFO - world_size 4
+2026-07-22 01:19:25,345 - root - INFO - global_batch_size 4
+2026-07-22 01:19:25,345 - root - INFO - inference_steps 45
+2026-07-22 01:19:25,345 - root - INFO - experiment_dir /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1
+2026-07-22 01:19:25,345 - root - INFO - checkpoint_path /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/ckpt.tar
+2026-07-22 01:19:25,345 - root - INFO - best_checkpoint_path /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/best_ckpt.tar
+2026-07-22 01:19:25,345 - root - INFO - config_filepath /data/bing/S2S/v2.0/HPC_scripts/../config/exp16_nvidia.yaml
+2026-07-22 01:19:25,345 - root - INFO - run_num si_c1
+2026-07-22 01:19:25,345 - root - INFO - resuming False
+2026-07-22 01:19:25,345 - root - INFO - local_rank 0
+2026-07-22 01:19:25,345 - root - INFO - enable_amp True
+2026-07-22 01:19:25,345 - root - INFO - ---------------------------------------------------
+2026-07-22 01:19:25,353 - root - INFO - Synchronous Saving
+2026-07-22 01:19:25,354 - root - INFO - rank 0, begin data loader init
+World size from Cuda: 4
+4
+##########WORLD RANK: TESTING  1
+Valid dataset length: 10001
+2026-07-22 01:19:25,770 - root - INFO - Synchronous Saving
+2026-07-22 01:19:25,771 - root - INFO - rank 3, begin data loader init
+2026-07-22 01:19:25,791 - root - INFO - Synchronous Saving
+2026-07-22 01:19:25,791 - root - INFO - rank 2, begin data loader init
+Valid dataset length: 10001
+2026-07-22 01:19:25,927 - root - INFO - rank 3, data loader initialized
+Embedding Dimensions are 240
+mask_output is False. Land variables output will not be masked.
+mask_output is False. Ocean variables output will not be masked.
+Num diagnostic vars: 2
+Pad sizes in 3D patch embedding
+(0, 0, 0, 0, 1, 0)
+Patch Size
+(2, 2, 2)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Valid dataset length: 10001
+2026-07-22 01:19:25,949 - root - INFO - rank 2, data loader initialized
+Embedding Dimensions are 240
+mask_output is False. Land variables output will not be masked.
+mask_output is False. Ocean variables output will not be masked.
+Num diagnostic vars: 2
+Pad sizes in 3D patch embedding
+(0, 0, 0, 0, 1, 0)
+Patch Size
+(2, 2, 2)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+2026-07-22 01:19:25,963 - root - INFO - Synchronous Saving
+2026-07-22 01:19:25,964 - root - INFO - rank 1, begin data loader init
+2026-07-22 01:19:25,967 - root - INFO - rank 0, data loader initialized
+Embedding Dimensions are 240
+mask_output is False. Land variables output will not be masked.
+mask_output is False. Ocean variables output will not be masked.
+Num diagnostic vars: 2
+Pad sizes in 3D patch embedding
+(0, 0, 0, 0, 1, 0)
+Patch Size
+(2, 2, 2)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Embed Dim:
+240
+Input resolution:Valid dataset length: 10001
+(10, 90, 180)
+
+depth
+2
+num_heads
+6
+drop_path:
+[0.0, 0.028571428571428574]
+2026-07-22 01:19:26,120 - root - INFO - rank 1, data loader initialized
+Embedding Dimensions are 240
+mask_output is False. Land variables output will not be masked.
+mask_output is False. Ocean variables output will not be masked.
+Num diagnostic vars: 2
+Pad sizes in 3D patch embedding
+(0, 0, 0, 0, 1, 0)
+Patch Size
+(2, 2, 2)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Embed Dim:
+240
+Input resolution:
+(10, 90, 180)
+depth
+2
+num_heads
+6
+drop_path:
+[0.0, 0.028571428571428574]
+Embed Dim:
+240
+Input resolution:
+(10, 90, 180)
+depth
+2
+num_heads
+6
+drop_path:
+[0.0, 0.028571428571428574]
+Embed Dim:
+240
+Input resolution:
+(10, 90, 180)
+depth
+2
+num_heads
+6
+drop_path:
+[0.0, 0.028571428571428574]
+restore_diff_checkpoint: skipped 363 frozen encoder keysrestore_diff_checkpoint: skipped 363 frozen encoder keys
+
+Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
+Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
+restore_diff_checkpoint: skipped 363 frozen encoder keys
+Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
+restore_diff_checkpoint: skipped 363 frozen encoder keys
+Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
+Loaded det weights from checkpoint_path_det into diff_model.model_det
+Loaded det weights from checkpoint_path_det into diff_model.model_det
+Loaded det weights from checkpoint_path_det into diff_model.model_det
+2026-07-22 01:19:27,917 - root - INFO - Starting Model Inference Loop...
+/data/bing/S2S/v2.0/HPC_scripts/../inference.py:301: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+/data/bing/S2S/v2.0/HPC_scripts/../inference.py:301: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+/data/bing/S2S/v2.0/HPC_scripts/../inference.py:301: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+start_time 2019-05-13 00:00:00
+start_timestart_time  2019-05-09 00:00:00
+2019-05-02 00:00:00
+Loaded det weights from checkpoint_path_det into diff_model.model_det
+/data/bing/S2S/v2.0/HPC_scripts/../inference.py:301: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+start_time 2019-05-06 00:00:00
+start_time 2019-05-27 00:00:00
+start_time 2019-05-16 00:00:00
+start_time 2019-05-23 00:00:00
+start_time 2019-05-20 00:00:00
+start_time 2019-06-10 00:00:00
+start_time 2019-06-06 00:00:00
+start_time 2019-06-03 00:00:00
+start_time 2019-05-30 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_10.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_10.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_10.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_11.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_11.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_12.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_12.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_13.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_13.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_14.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_14.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_15.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_16.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_17.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_18.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_19.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_20.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_21.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_22.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_23.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_24.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_25.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_26.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_27.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_28.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_49.nc
+start_time 2019-06-24 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_49.nc
+start_time 2019-06-13 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_49.nc
+start_time 2019-06-17 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_49.nc
+start_time 2019-06-20 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_32.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_33.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_34.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_35.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_36.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_37.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_38.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_39.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_40.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_41.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_42.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_43.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_44.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_45.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_46.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_47.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_48.nc
+Saving predictions...
+filenmae for start times: 2019-05-27 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052700_ens_49.nc
+start_time 2019-07-08 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-16 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051600_ens_49.nc
+start_time 2019-06-27 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-20 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052000_ens_49.nc
+start_time 2019-07-01 00:00:00
+Saving predictions...
+filenmae for start times: 2019-05-23 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019052300_ens_49.nc
+start_time 2019-07-04 00:00:00
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_10.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_11.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_12.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_13.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_14.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_15.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_16.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_17.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_18.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_19.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_20.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_21.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_22.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_23.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_24.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_25.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_26.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_27.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_28.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_29.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_30.nc
+Saving predictions...
+filenmae for start times: 2019-06-10 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019061000_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-05-30 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019053000_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-06-03 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060300_ens_31.nc
+Saving predictions...
+filenmae for start times: 2019-06-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019060600_ens_31.nc
+W0722 14:39:16.275000 496086 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received 15 death signal, shutting down workers
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launch.py", line 208, in <module>
+    main()
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/typing_extensions.py", line 2853, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launch.py", line 204, in main
+    launch(args)
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launch.py", line 189, in launch
+    run(args)
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 260, in launch_agent
+    result = agent.run()
+             ^^^^^^^^^^^
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/metrics/api.py", line 137, in wrapper
+    result = f(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/agent/server/api.py", line 711, in run
+    result = self._invoke_run(role)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/agent/server/api.py", line 870, in _invoke_run
+    time.sleep(monitor_interval)
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/multiprocessing/api.py", line 84, in _terminate_process_handler
+    raise SignalException(f"Process {os.getpid()} got signal: {sigval}", sigval=sigval)
+torch.distributed.elastic.multiprocessing.api.SignalException: Process 496086 got signal: 15

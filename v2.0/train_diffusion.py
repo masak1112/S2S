@@ -48,6 +48,7 @@ class DiffusionTrainer(Trainer):
             p.requires_grad = False
 
         self.diff_model= self.get_diffusion_model()
+        self.temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
         self.optimizer = torch.optim.Adam(self.diff_model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
         if self.params.checkpoint_path_diff and os.path.isfile(self.params.checkpoint_path_diff):
             self.restore_diff_checkpoint(self.params.checkpoint_path_diff)
@@ -192,20 +193,22 @@ class DiffusionTrainer(Trainer):
                     current_lr = self.optimizer.param_groups[0]["lr"]
                     diagnostic_logs = {"loss": loss, "lr": current_lr}
 
-                    print("self.wandb_enabled", self.wandb_enabled)
+
                     if self.world_rank == 0:
                         print("wandb logging ")
                         wandb.log(diagnostic_logs, step= self.iters)
                         if do_scatter and self.wandb_enabled and os.path.isfile(scatter_path):
                             wandb.log({"scatter_pred_vs_gt": wandb.Image(scatter_path)}, step=self.iters)
                     if i>  2000 and i % 2000 == 0:
-                        self.temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
-                        diff_path = os.path.join(self.temp_path, f"diff_ckpt_{self.iters}.tar")
-                        last_path = os.path.join(self.temp_path, "last_ckpt.tar")
+                        temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
+                        diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
+                        last_path = os.path.join(temp_path, "last_ckpt.tar")
                         logging.info(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['loss']:.4f}")
                         self.save_checkpoint(diff_path, self.diff_model)
                         self.save_checkpoint(last_path, self.diff_model)
                         logging.info(f"Updated last checkpoint: {last_path}")
+                        if self.wandb_enabled:
+                            wandb.save(last_path, base_path=temp_path)
                         
         # pbar.close()
         # pbar.updac te(1)
@@ -219,11 +222,14 @@ class DiffusionTrainer(Trainer):
                 wandb.log(logs, step = self.epoch)  
 
             if self.world_rank == 0:
-                last_path = os.path.join(self.temp_path, "diff_ckpt.tar")
-                self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
+                temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
+                last_path = os.path.join(temp_path, "diff_ckpt.tar")
+                #self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
                 self.save_checkpoint(last_path, self.diff_model)
                 logging.info("Saved latest checkpoint: %s", self.params.checkpoint_path_diff)
                 logging.info("Saved last checkpoint alias: %s", last_path)
+                if self.wandb_enabled:
+                    wandb.save(last_path, base_path=temp_path)
             
             # validation_interval = int(getattr(self.params, "validation_interval", 1))
             # if validation_interval > 0 and (self.epoch % validation_interval == 0):
@@ -256,7 +262,7 @@ class DiffusionTrainer(Trainer):
                 if max_valid_batches > 0 and i >= max_valid_batches:
                     break
 
-                input_surface, input_upper_air, target_surface, target_upper_air, _, varying_boundary_data = self._prepare_inputs_batch(data)
+                input_surface, input_upper_air, target_surface, target_upper_air, _,  varying_boundary_data = self._prepare_inputs_batch(data)
 
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
                     val_loss = self.diff_model.training_step(
@@ -322,7 +328,6 @@ class DiffusionTrainer(Trainer):
         return self.diff_model
 
 
-            
             
             
 if __name__ == "__main__":
