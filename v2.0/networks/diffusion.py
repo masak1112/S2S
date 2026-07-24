@@ -669,7 +669,7 @@ class ConditionalDiffusionModel(nn.Module):
         self.model_det = DETEncoder
         self.freeze_encoder()
         self._encoder_param_checksums = self._snapshot_encoder_params()
-        self.unet = ConUNet_1degV2(dim_in =10, dim_cond=2, dim_out=10, c = 64,
+        self.unet = ConUNet_1degV2(dim_in =20, dim_cond=2, dim_out=10, c = 64,
                                    c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4,
                                    checkpointing=getattr(params, 'checkpointing', 0),
                                    use_reentrant=getattr(params, 'use_reentrant', False))

@@ -329,7 +329,7 @@ class Stepper(Trainer):
                     val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
 
-                    ic_noise_std = getattr(self.params, 'ic_noise_std', 0.02)
+                    ic_noise_std = getattr(self.params, 'ic_noise_std', 0.05)
 
                     # t=0 IC perturbation, scaled per-variable (member 0 = control)
                     if ens_id > 0 and ic_noise_std > 0.0:

@@ -156,8 +156,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         if target_surface_in is None or target_upper_air is None:
             raise ValueError(
-                "training_step requires target_surface_in/target_upper_air (ground-truth "
-                "t+1 fields) to form the Pangu-latent residual target."
+                "training_step requires target_surface_in/target_upper_air for the "
+                "x_true diagnostic print."
             )
 
         surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
@@ -174,20 +174,19 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         with torch.no_grad():
             x_true, _ = self._encode_det(target_surface, target_upper_air, train=False)
 
-        # What Pangu's mean-latent prediction misses.
-        residual = x_true - x
+        # Train SI to map N(0, x_sigma) -> x (Pangu deterministic forecast).
+        # The SDE integration (brownian gamma) creates stochastic spread at inference.
+        # x (Pangu latent) is also concatenated with the path point so the UNet has
+        # full state information; this requires dim_in=20 in the UNet.
+        x_sigma = x.std().item()
+        
+        # if torch.rand(1).item() < 0.01:
+        #     print(f"[SI spread diag] x std={x_sigma:.4f}  x_true std={x_true.std().item():.4f}")
 
-        # Source sigma matched to residual scale so the flow transports meaningful
-        # variance. Using N(0,I) as source when residual_std << 1 causes the SI to
-        # learn a near-zero trivial mapping, collapsing ensemble spread.
-        residual_sigma = residual.std().item()
-        if torch.rand(1).item() < 0.01:
-            print(f"[SI spread diag] residual std={residual_sigma:.4f}  x_true std={x_true.std().item():.4f}  ratio={residual_sigma/max(x_true.std().item(),1e-6):.3f}")
+        base = self.sample_from_source(x, n_samples=B, reparam=True, sigma=x_sigma)
+        assert base.shape == x.shape, f"Shape mismatch: base {base.shape} vs x {x.shape}."
 
-        base = self.sample_from_source(residual, n_samples=B, reparam=True, sigma=residual_sigma)
-        assert base.shape == residual.shape, f"Expected shape of base noise to match residual. Got {base.shape} and {residual.shape}."
-
-        target = residual
+        target = x
         It = self.I(x0=base, x1=target, t=ts)
         dIdt = self.dIdt(x0=base, x1=target, t=ts)
         It_p = It + self.gamma(ts)*torch.randn_like(It).to(device)
@@ -196,9 +195,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         assert not torch.isnan(It_p).any(), f"It_p has NaN"
         assert not torch.isnan(z).any(), f"z has NaN"
 
-        noise   = torch.randn_like(base).to(device)
-        drift_p  = self.unet(It_p, z, ts)
-        drift_m  = self.unet(It_m, z, ts)
+        # Concatenate Pangu latent x as additional channels so the UNet can
+        # condition its drift on the full current atmospheric state.
+        noise    = torch.randn_like(base).to(device)
+        drift_p  = self.unet(torch.cat([It_p, x], dim=1), z, ts)
+        drift_m  = self.unet(torch.cat([It_m, x], dim=1), z, ts)
 
         target_p = dIdt - noise * self.gamma_dot(ts)
         target_m = dIdt + noise * self.gamma_dot(ts)
@@ -255,7 +256,6 @@ class StochasticInterpolant(ConditionalDiffusionModel):
     
     
         
-        
     @torch.no_grad()
     def generate(
         self,
@@ -282,7 +282,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                              so source and target distributions have matched scale
         """
         z = z.repeat_interleave(num_samples, dim=0)
-        assert x.shape == sample_shape
+        x = x.repeat_interleave(num_samples, dim=0)
         if sample_shape is None:
             C, H, W = z.shape[1:]
         else:
@@ -317,12 +317,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         source_sigma: float = 1.0,
     ) -> torch.Tensor:
         """Full reverse diffusion loop."""
-        shape = x.shape
-        x = self.sample_from_source(x, n_samples=shape[0], reparam=True,
-                                    sigma=source_sigma).to(device) * temperature
+        x_pangu = x  # keep Pangu latent for state-conditioning at every step
 
-        # MC dropout: put only the UNet in train mode so dropout is active;
-        # frozen encoders stay in eval mode (guaranteed by ConditionalDiffusionModel.train()).
+        x_t = self.sample_from_source(x_pangu, n_samples=x_pangu.shape[0], reparam=True,
+                                      sigma=source_sigma).to(device) * temperature
+
         if mc_dropout:
             model.train()
 
@@ -330,15 +329,16 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         self.ts = torch.linspace(self.start, self.end, T)
 
         for ii, t in enumerate(self.ts[:-1]):
-                t_current = self.ts[ii]
-                t_next = self.ts[ii+1]
-                dt = t_next - t_current
-                x = self.p_sample(model=model, x_t=x, t=t, cond=cond, dt=dt)
+            t_current = self.ts[ii]
+            t_next    = self.ts[ii + 1]
+            dt = t_next - t_current
+            x_t = self.p_sample(model=model, x_t=x_t, t=t, cond=cond, dt=dt,
+                                 x_pangu=x_pangu)
 
         if mc_dropout:
             model.eval()
 
-        return x
+        return x_t
 
     @torch.no_grad()
     def p_sample(
@@ -347,13 +347,15 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         x_t: torch.Tensor,
         t: torch.Tensor,
         cond: torch.Tensor,
-        dt: torch.Tensor
+        dt: torch.Tensor,
+        x_pangu: torch.Tensor = None,
     ) -> torch.Tensor:
 
-        # Ensure time and dt tensors are on the same device as x_t
         t = t.to(x_t.device)
         dt = dt.to(x_t.device)
-        drift = model(x_t, cond, t)
+        # Concatenate Pangu latent as state-conditioning channels (matches training).
+        model_input = torch.cat([x_t, x_pangu], dim=1) if x_pangu is not None else x_t
+        drift = model(model_input, cond, t)
         y  = self.step_forward(x_t, drift, dt, self.gamma(t))
 
         return y
@@ -361,7 +363,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
     def prediction(self, surface_in, constant_boundary,
                    varying_boundary, upper_air_in,
-                   num_samples = 1, device = None, seed = None, temperature: float = 1.3,
+                   num_samples = 1, device = None, seed = None, temperature: float = 1,
                    mc_dropout: bool = False):
         
         if seed is not None:
@@ -380,7 +382,6 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # 1. Encode condition
         #######VAE ENCODER START ########
 
-    
         z  = self._encode_vae(surface_in, upper_air_in)
 
         # Enable Pangu dropout for MC dropout inference (parameters stay frozen).
@@ -396,13 +397,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         x, skip = self._encode_det(surface_in, upper_air_in, train=False)
         target_latent_shape = x.shape
 
-        # Estimate the source sigma from the latent std so training/inference are
-        # consistent: during training source_sigma = residual.std(); here we use
-        # x.std() as a proxy (same order of magnitude as residual at short lead).
-        # Exposed as a param so it can be overridden from the config.
+        # SI is trained with source N(0, x.std()), target = x, so use x.std() here.
+        # Can be overridden via config source_sigma for tuning.
         source_sigma = float(getattr(self.params, 'source_sigma', x.std().item()))
 
-        residual = self.generate(
+        x_si = self.generate(
             model_diff=self.unet,
             z=z,
             x=x,
@@ -414,8 +413,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
             source_sigma=source_sigma,
         )
 
-        # Add the SI-sampled residual back onto Pangu's mean-latent prediction.
-        x = x.repeat_interleave(num_samples, dim=0) + residual
+        # SI targets x (Pangu latent); SDE integration creates spread around x.
+        x = x_si
 
         x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
         

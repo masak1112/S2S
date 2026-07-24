@@ -195,11 +195,11 @@ class DiffusionTrainer(Trainer):
 
 
                     if self.world_rank == 0:
-                        print("wandb logging ")
+                        # print("wandb logging ")
                         wandb.log(diagnostic_logs, step= self.iters)
                         if do_scatter and self.wandb_enabled and os.path.isfile(scatter_path):
                             wandb.log({"scatter_pred_vs_gt": wandb.Image(scatter_path)}, step=self.iters)
-                    if i>  2000 and i % 2000 == 0:
+                    if i >= 2000 and i % 2000 == 0:
                         temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
                         diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
                         last_path = os.path.join(temp_path, "last_ckpt.tar")
