@@ -101,33 +101,43 @@ class Latitude_weighted_CRPSLoss(_Loss):
         self.mask = mask
     
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
-        B = input.shape[0] // self.num_ensemble_members
-        reshaped_input = input.view(B, self.num_ensemble_members, *input.shape[1:])
-        reshaped_target = target.view(B, self.num_ensemble_members, *target.shape[1:])
+        # Unbiased (Fair) CRPS:
+        #   CRPS_fair = (1/M) * Σ_i |x_i - y| - 1/(2*M*(M-1)) * Σ_{i≠j} |x_i - x_j|
+        # This removes the bias introduced by finite ensemble size.
+        M = self.num_ensemble_members
+        B = input.shape[0] // M
+        reshaped_input = input.view(B, M, *input.shape[1:])
+        # target is repeated M times; take first copy as the ground truth
+        reshaped_target = target.view(B, M, *target.shape[1:])[:, 0]
+
         total_loss = []
         for i in range(B):
-            loss = self.CRPSSkill(reshaped_input[i], reshaped_target[i]) - \
-                0.5 * self.CRPSSpread(reshaped_input[i], reshaped_input[i])
+            skill = self.CRPSSkill(reshaped_input[i], reshaped_target[i])
+            spread = self.CRPSSpread(reshaped_input[i])
+            loss = skill - spread
             if self.mask:
                 loss = torch.where(self.mask, loss, torch.nan)
-                
             total_loss.append(torch.nanmean(loss))
 
         return torch.mean(torch.stack(total_loss))
-    
+
     def CRPSSkill(self, input: Tensor, target: Tensor) -> Tensor:
-        return weighted_mae(input, target, self.latitudes, reduction='none').mean(dim=0)
-    
-    def CRPSSpread(self, input: Tensor, target: Tensor) -> Tensor:
-        # compute (1/(M-1)) * mean(x_i - x_j) summed over all i,j
-        # only compute for i<j since sum is symmetric
+        # target shape: [C, H, W], input shape: [M, C, H, W]
+        # (1/M) Σ_i |x_i - y|
+        return weighted_mae(input, target.unsqueeze(0).expand_as(input),
+                            self.latitudes, reduction='none').mean(dim=0)
+
+    def CRPSSpread(self, input: Tensor) -> Tensor:
+        # 1/(2*M*(M-1)) * Σ_{i≠j} |x_i - x_j|
+        # computed over i<j pairs and doubled for i≠j
+        M = input.shape[0]
         spread = torch.zeros_like(input[0])
-        for i in range(input.shape[0]):
-            for j in range(i+1, input.shape[0]):
-                spread += 2 * weighted_mae(input[i], target[j], self.latitudes, reduction='none')
-        prefactor = 1 / (self.num_ensemble_members * (self.num_ensemble_members - 1))
-        spread = prefactor * spread
-        return spread
+        for i in range(M):
+            for j in range(i + 1, M):
+                spread += weighted_mae(input[i], input[j], self.latitudes, reduction='none')
+        # sum over i<j equals half of i≠j sum, so multiply by 2 then divide by 2*M*(M-1)
+        # simplifies to: spread / (M*(M-1))
+        return spread / (M * (M - 1))
     
 
 
