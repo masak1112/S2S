@@ -132,6 +132,10 @@ class Stepper(Trainer):
             checkpoint_path_vae=params.checkpoint_path_vae_c1,
             checkpoint_path_det=params.checkpoint_path_det,
         )
+        finetune_ckpt = getattr(params, 'checkpoint_path_finetune', None)
+        if finetune_ckpt and os.path.isfile(finetune_ckpt):
+            self.restore_finetune_checkpoint(finetune_ckpt)
+            print(f"Fine-tuned decoder loaded from {finetune_ckpt}")
 
     def restore_diff_checkpoint(self, checkpoint_path_diff):
         """ We intentionally require a checkpoint_dir to be passed
@@ -160,6 +164,26 @@ class Stepper(Trainer):
         self.epoch = checkpoint['epoch']
 
   
+    def restore_finetune_checkpoint(self, finetune_ckpt_path):
+        """Load fine-tuned decoder weights (upsample, layer4, patchrecovery*) from a
+        CRPS fine-tune checkpoint, overriding the frozen decoder loaded earlier.
+        Only model_det.* keys are applied; UNet and encoder keys are ignored.
+        """
+        ckpt = torch.load(finetune_ckpt_path,
+                          map_location=f'cuda:{self.params.local_rank}',
+                          weights_only=False)
+        state = ckpt['model_state']
+        if any(k.startswith('module.') for k in state):
+            state = OrderedDict((k[7:], v) for k, v in state.items())
+        decoder_state = {k: v for k, v in state.items() if k.startswith('model_det.')}
+        missing, unexpected = self.diff_model.load_state_dict(decoder_state, strict=False)
+        print(f"restore_finetune_checkpoint: loaded {len(decoder_state)} decoder keys "
+              f"from {finetune_ckpt_path}")
+        if missing:
+            print(f"  missing keys: {missing[:5]}{'...' if len(missing)>5 else ''}")
+        if unexpected:
+            print(f"  unexpected keys: {unexpected[:5]}{'...' if len(unexpected)>5 else ''}")
+
     def _reload_vae_checkpoint(self, checkpoint_path_vae=None, checkpoint_path_det=None):
         """Explicitly load VAE and deterministic checkpoint weights into
         diff_model.encoder and diff_model.model_det respectively.
@@ -329,7 +353,7 @@ class Stepper(Trainer):
                     val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
 
-                    ic_noise_std = getattr(self.params, 'ic_noise_std', 0.05)
+                    ic_noise_std = getattr(self.params, 'ic_noise_std', 0.2)
 
                     # t=0 IC perturbation, scaled per-variable (member 0 = control)
                     if ens_id > 0 and ic_noise_std > 0.0:
@@ -342,7 +366,7 @@ class Stepper(Trainer):
                         val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data,
                                                                     varying_boundary=val_varying_boundary_data[:,time_step],
                                                                     upper_air_in=val_input_upper_air, device=self.device,
-                                                                    mc_dropout=True, temperature=1.3)
+                                                                    mc_dropout=True, temperature=1.5)
                         val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
                         val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
 
@@ -488,6 +512,8 @@ if __name__ == '__main__':
     parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
     parser.add_argument("--local-rank", type=int)
+    parser.add_argument("--finetune_ckpt", default=None, type=str,
+                        help="Path to CRPS fine-tuned decoder checkpoint; overrides decoder weights after normal loading")
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
@@ -495,6 +521,8 @@ if __name__ == '__main__':
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
+    if args.finetune_ckpt:
+        params['checkpoint_path_finetune'] = args.finetune_ckpt
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
             params['has_diagnostic'] = True

@@ -245,7 +245,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         plt.close(fig)
     
     
-    def step_forward(self, x, drift, dt, g, eps = torch.tensor(1.5)):
+    def step_forward(self, x, drift, dt, g, eps = torch.tensor(2.0)):
         """
         Perform one step of the forward SDE: x_{t+dt} = x_t + drift*dt + squire(dt)*gamma(t)*eps, where dW ~ N(0, dt).
         """
@@ -319,7 +319,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         """Full reverse diffusion loop."""
         x_pangu = x  # keep Pangu latent for state-conditioning at every step
 
-        x_t = self.sample_from_source(x_pangu, n_samples=x_pangu.shape[0], reparam=True,
+        x_t = self.sample_from_source(x_pangu, n_samples=1, reparam=True,
                                       sigma=source_sigma).to(device) * temperature
 
         if mc_dropout:
@@ -349,6 +349,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         cond: torch.Tensor,
         dt: torch.Tensor,
         x_pangu: torch.Tensor = None,
+        eps: float = 2.0,
     ) -> torch.Tensor:
 
         t = t.to(x_t.device)
@@ -356,14 +357,107 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # Concatenate Pangu latent as state-conditioning channels (matches training).
         model_input = torch.cat([x_t, x_pangu], dim=1) if x_pangu is not None else x_t
         drift = model(model_input, cond, t)
-        y  = self.step_forward(x_t, drift, dt, self.gamma(t))
+        y  = self.step_forward(x_t, drift, dt, self.gamma(t), eps=torch.tensor(eps))
 
         return y
 
 
+    def crps_finetune_step(self, surface_in, constant_boundary, varying_boundary,
+                           upper_air_in, target_surface, target_upper_air,
+                           latitudes, num_samples: int = 2, target_diagnostic=None):
+        """Generate num_samples ensemble members and compute CRPS loss in output space.
+
+        SI/UNet and encoders stay frozen (no_grad). Only the Pangu decoder
+        (upsample, layer4, patchrecovery2d, patchrecovery3d) receives gradients.
+        """
+        from utils.losses import Latitude_weighted_CRPSLoss
+
+        surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
+        B = surface.size(0)
+        device = surface.device
+
+        # Encode — all frozen, no grad needed through SI
+        with torch.no_grad():
+            z = self._encode_vae(surface, upper_air_in)
+            x, skip = self._encode_det(surface, upper_air_in, train=False)
+            # x: [B, Pl, seq, embed*scale], skip: [B, seq, embed]
+            Pl_det = x.shape[1]
+            Lat, Lon = self.downscale_resolution_det[1], self.downscale_resolution_det[2]
+
+            source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
+            x_si = self.generate(
+                model_diff=self.unet,
+                z=z,
+                x=x,
+                num_samples=num_samples,
+                sample_shape=x.shape,
+                device=device,
+                temperature=1.5,
+                source_sigma=source_sigma,
+            )  # [B*num_samples, Pl, seq, embed*scale]
+
+        BS = x_si.shape[0]  # B * num_samples
+
+        # Decoder — gradients flow through these layers only
+        Pl_est, Lat_est, Lon_est = self.model_det.EST_input_resolution
+        x_dec = x_si.reshape(BS, -1, 240 * self.params.updown_scale_factor)
+        x_dec = self.model_det.upsample(x_dec)
+        x_dec = self.model_det.layer4(x_dec, train=False)
+        skip_expanded = skip.repeat_interleave(num_samples, dim=0)
+        output = torch.cat([x_dec, skip_expanded], dim=-1)
+        output = output.transpose(1, 2).reshape(BS, -1, Pl_est, Lat_est, Lon_est)
+
+        output_surface = output[:, :, -1, :, :]
+        output_upper_air = output[:, :, :-1, :, :]
+        output_2D = self.model_det.patchrecovery2d(output_surface)
+        pred_surface = output_2D[:, self.surface_prognostic_idxs]
+        pred_upper_air = self.model_det.patchrecovery3d(output_upper_air)
+        pred_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
+            BS, -1, pred_surface.shape[-2], pred_surface.shape[-1])
+
+        # CRPS — targets repeated to match [B*num_samples, ...]
+        target_sfc_rep = target_surface.repeat_interleave(num_samples, dim=0)
+        target_ua_rep = target_upper_air.repeat_interleave(num_samples, dim=0)
+        crps_loss_fn = Latitude_weighted_CRPSLoss(latitudes.to(device), num_ensemble_members=num_samples)
+
+        crps_sfc = crps_loss_fn(pred_surface, target_sfc_rep)
+        crps_ua  = crps_loss_fn(pred_upper_air, target_ua_rep)
+        loss = 0.2 * (crps_sfc + crps_ua)
+
+        crps_diag = torch.tensor(0.0, device=device)
+        precip_rmse = torch.tensor(0.0, device=device)
+
+        if target_diagnostic is not None and self.num_diagnostic_vars > 0:
+            target_diag_rep = target_diagnostic.repeat_interleave(num_samples, dim=0)
+            crps_diag = crps_loss_fn(pred_diagnostic, target_diag_rep)
+            loss = loss + 0.8 * crps_diag
+
+            # RMSE on precipitation to prevent dry-grid-point dominance in CRPS.
+            # Averaged over ensemble members so each member is penalised individually.
+            precip_idxs = [i for i, v in enumerate(self.params.diagnostic_variables)
+                           if 'precipitation' in v]
+            if precip_idxs:
+                lat_w = torch.cos(torch.tensor(self.params.lat, dtype=torch.float32,
+                                               device=device) * math.pi / 180.0)
+                lat_w = (lat_w / lat_w.mean()).view(1, 1, -1, 1)
+                for m in range(num_samples):
+                    pred_precip = pred_diagnostic[m::num_samples][:, precip_idxs]
+                    tgt_precip  = target_diagnostic[:, precip_idxs]
+                    precip_rmse = precip_rmse + torch.sqrt((lat_w * (pred_precip - tgt_precip) ** 2).mean())
+                    loss = loss + 0.1 * precip_rmse
+
+        import logging
+        logging.info(
+            f"[CRPS finetune] sfc={crps_sfc.item():.4f}  ua={crps_ua.item():.4f}  "
+            f"diag={crps_diag.item():.4f}  precip_rmse={precip_rmse.item():.4f}  "
+            f"total={loss.item():.4f}"
+        )
+
+        return loss, crps_sfc, crps_ua, crps_diag, precip_rmse
+
     def prediction(self, surface_in, constant_boundary,
                    varying_boundary, upper_air_in,
-                   num_samples = 1, device = None, seed = None, temperature: float = 1,
+                   num_samples = 1, device = None, seed = None, temperature: float = 1.5,
                    mc_dropout: bool = False):
         
         if seed is not None:
@@ -399,7 +493,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         # SI is trained with source N(0, x.std()), target = x, so use x.std() here.
         # Can be overridden via config source_sigma for tuning.
-        source_sigma = float(getattr(self.params, 'source_sigma', x.std().item()))
+        source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
 
         x_si = self.generate(
             model_diff=self.unet,
@@ -415,15 +509,17 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         # SI targets x (Pangu latent); SDE integration creates spread around x.
         x = x_si
+        BS = x.shape[0]  # B * num_samples
 
-        x = x.reshape(B, -1 ,240*self.params.updown_scale_factor)
-        
-        
+        x = x.reshape(BS, -1, 240*self.params.updown_scale_factor)
+
         ######## DETERMINISTIC DECODER START ######
         x = self.model_det.upsample(x)
         x = self.model_det.layer4(x, train=False)
-        output = torch.concat([x, skip], dim=-1)
-        output = output.transpose(1, 2).reshape(B, -1, Pl_det, Lat, Lon)
+        # Expand skip so each sample gets its own copy of the skip connection.
+        skip_expanded = skip.repeat_interleave(num_samples, dim=0)
+        output = torch.concat([x, skip_expanded], dim=-1)
+        output = output.transpose(1, 2).reshape(BS, -1, Pl_det, Lat, Lon)
         output_surface = output[:, :, -1, :, :]
         output_upper_air = output[:, :, :-1, :, :]
         output_2D = self.model_det.patchrecovery2d(output_surface)

@@ -13,7 +13,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 echo "NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE}"
 
 # Launch your script using torch.distributed.launch
-config_file=../config/exp16_nvidia.yaml
+config_file=../config/exp16_nvidia_v2.yaml
 
 #train command
-python -m torch.distributed.launch --master_port=29500 --nproc_per_node=$NUM_TASKS_PER_NODE ../train_diffusion.py --yaml_config=$config_file --run_num=si_c1
+python -m torch.distributed.launch --master_port=29500 --nproc_per_node=$NUM_TASKS_PER_NODE ../train_diffusion.py --yaml_config=$config_file --run_num=si_c1_full_state
