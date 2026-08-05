@@ -303,8 +303,8 @@ class Trainer():
             self.train_samplers = [train_sampler]
 
                                                                         
-        self.valid_data_loader, self.valid_dataset = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
-                                                                     year_start=self.params.val_year_start, 
+        self.valid_data_loader, self.valid_dataset, _ = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(),
+                                                                     year_start=self.params.val_year_start,
                                                                      year_end=self.params.val_year_end, train=False,
                                                                      num_inferences = self.params.num_inferences,
                                                                      validate = True)

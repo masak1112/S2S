@@ -179,7 +179,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # x (Pangu latent) is also concatenated with the path point so the UNet has
         # full state information; this requires dim_in=20 in the UNet.
         x_sigma = x.std().item()
-        
+
         # if torch.rand(1).item() < 0.01:
         #     print(f"[SI spread diag] x std={x_sigma:.4f}  x_true std={x_true.std().item():.4f}")
 
@@ -457,8 +457,12 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
     def prediction(self, surface_in, constant_boundary,
                    varying_boundary, upper_air_in,
-                   num_samples = 1, device = None, seed = None, temperature: float = 1.5,
-                   mc_dropout: bool = False):
+                   num_samples = 1, device = None,
+                   seed = None,
+                   temperature: float = 1.5,
+                   mc_dropout: bool = False,
+                   use_gaussian_latent: bool = False,
+                   gaussian_latent_std: float = 1.0):
         
         if seed is not None:
             torch.manual_seed(seed)
@@ -495,17 +499,24 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # Can be overridden via config source_sigma for tuning.
         source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
 
-        x_si = self.generate(
-            model_diff=self.unet,
-            z=z,
-            x=x,
-            num_samples=num_samples,
-            sample_shape=target_latent_shape,
-            device=device,
-            temperature=temperature,
-            mc_dropout=mc_dropout,
-            source_sigma=source_sigma,
-        )
+        if use_gaussian_latent:
+            # Diagnostic bypass: skip the SI entirely and perturb the Pangu
+            # deterministic latent with isotropic Gaussian noise. If this produces
+            # more spread than the SI, it means the SI is failing to generate
+            # diversity (training collapsed toward the deterministic mean).
+            x_si = x + gaussian_latent_std * x.std() * torch.randn_like(x)
+        else:
+            x_si = self.generate(
+                model_diff=self.unet,
+                z=z,
+                x=x,
+                num_samples=num_samples,
+                sample_shape=target_latent_shape,
+                device=device,
+                temperature=temperature,
+                mc_dropout=mc_dropout,
+                source_sigma=source_sigma,
+            )
 
         # SI targets x (Pangu latent); SDE integration creates spread around x.
         x = x_si

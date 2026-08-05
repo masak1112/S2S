@@ -12,6 +12,7 @@ from utils.YParams import YParams
 import os, shutil
 import time
 import numpy as np
+import math
 import argparse
 import torch
 import torch.cuda.amp as amp
@@ -82,8 +83,8 @@ class Stepper(Trainer):
         
         self.num_diagnostic_vars = len(self.params.diagnostic_variables) if self.params.has_diagnostic else 0
         logging.info('rank %d, begin data loader init' % world_rank)
-        self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                     year_start=params.val_year_start, 
+        self.valid_data_loader, self.valid_dataset, _ = get_data_loader(params, params.data_dir, dist.is_initialized(),
+                                                                     year_start=params.val_year_start,
                                                                      year_end=params.val_year_end, train=False,
                                                                      num_inferences = params.num_inferences, validate = True)
         print(f'Valid dataset length: {len(self.valid_dataset)}')
@@ -356,18 +357,54 @@ class Stepper(Trainer):
                     ic_noise_std = getattr(self.params, 'ic_noise_std', 0.2)
 
                     # t=0 IC perturbation, scaled per-variable (member 0 = control)
-                    if ens_id > 0 and ic_noise_std > 0.0:
-                        surf_scale = val_input_surface.std(dim=(-2, -1), keepdim=True)
-                        ua_scale   = val_input_upper_air.std(dim=(-2, -1), keepdim=True)
-                        val_input_surface   = val_input_surface   + ic_noise_std * surf_scale * torch.randn_like(val_input_surface)
-                        val_input_upper_air = val_input_upper_air + ic_noise_std * ua_scale   * torch.randn_like(val_input_upper_air)
+                    # if ens_id > 0 and ic_noise_std > 0.0:
+                    #     surf_scale = val_input_surface.std(dim=(-2, -1), keepdim=True)
+                    #     ua_scale   = val_input_upper_air.std(dim=(-2, -1), keepdim=True)
+                    #     val_input_surface   = val_input_surface   + ic_noise_std * surf_scale * torch.randn_like(val_input_surface)
+                    #     val_input_upper_air = val_input_upper_air + ic_noise_std * ua_scale   * torch.randn_like(val_input_upper_air)
+
+                    base_temperature      = getattr(self.params, 'base_temperature',      1.5)
+                    temperature_growth   = getattr(self.params, 'temperature_growth',   0.1)
+                    step_noise_std       = getattr(self.params, 'step_noise_std',       0.03)
+                    noise_growth_exp     = getattr(self.params, 'noise_growth_exp',     0.5)
+                    use_gaussian_latent  = getattr(self.params, 'use_gaussian_latent',  False)
+                    gaussian_latent_std  = getattr(self.params, 'gaussian_latent_std',  1.0)
 
                     for time_step in range(self.params['inference_steps']):
+                        # Approach 1: temperature grows linearly with lead time
+                        temperature = base_temperature * (1.0 + temperature_growth * time_step)
+
                         val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data,
                                                                     varying_boundary=val_varying_boundary_data[:,time_step],
                                                                     upper_air_in=val_input_upper_air, device=self.device,
-                                                                    mc_dropout=True, temperature=1.5)
-                        val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
+                                                                    mc_dropout=True, temperature=temperature,
+                                                                    use_gaussian_latent=(use_gaussian_latent and ens_id > 0),
+                                                                    gaussian_latent_std=gaussian_latent_std)
+
+                        # Approach 2: per-step additive state noise with amplitude that grows with lead time.
+                        # Constant noise reaches an equilibrium with the model's attractor and spread plateaus;
+                        # growing noise (step+1)^noise_growth_exp overcomes the contraction at long leads.
+                        # if ens_id > 0 and step_noise_std > 0.0:
+                        #     noise_scale = step_noise_std * math.pow(time_step + 1, noise_growth_exp)
+                        #     surf_scale = val_out_surface.std(dim=(-2, -1), keepdim=True).clamp(min=1e-6)
+                        #     ua_scale   = val_out_upper_air.std(dim=(-2, -1), keepdim=True).clamp(min=1e-6)
+                        #     val_out_surface   = val_out_surface   + noise_scale * surf_scale * torch.randn_like(val_out_surface)
+                        #     val_out_upper_air = val_out_upper_air + noise_scale * ua_scale   * torch.randn_like(val_out_upper_air)
+                        #     # Diagnostic variables (e.g. precipitation) are not fed back as inputs so they
+                        #     # receive no spread from the prognostic noise chain. Perturb them directly here
+                        #     # in normalized space; non-negative variables are clamped after inv_transform.
+                        #     if self.params.has_diagnostic:
+                        #         diag_scale = val_out_diagnostic.std(dim=(-2, -1), keepdim=True).clamp(min=1e-6)
+                        #         val_out_diagnostic = val_out_diagnostic + noise_scale * diag_scale * torch.randn_like(val_out_diagnostic)
+
+                        diag_phys = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
+                        # Clamp non-negative diagnostic variables (precipitation) to zero.
+                        nonneg_vars = {'total_precipitation_24hr', 'total_precipitation_6hr',
+                                       'mean_top_net_long_wave_radiation_flux'}
+                        for vi, vname in enumerate(self.valid_dataset.diagnostic_variables):
+                            if vname in nonneg_vars:
+                                diag_phys[:, vi] = np.clip(diag_phys[:, vi], 0.0, None)
+                        val_output_diagnostic[:, time_step + 1] = diag_phys
                         val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
 
                         val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()

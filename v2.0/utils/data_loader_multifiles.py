@@ -89,26 +89,28 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, shuffle = None):
 
     dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate)
-    sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
-    if train and not distributed:
+    # shuffle defaults to train unless explicitly overridden
+    do_shuffle = train if shuffle is None else shuffle
+    sampler = DistributedSampler(dataset, shuffle=do_shuffle) if distributed else None
+    if do_shuffle and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
 
 
     dataloader = DataLoader(dataset,
                             batch_size=int(params.batch_size),
                             num_workers=params.num_data_workers,
-                            shuffle=False,  # (sampler is None),
-                            sampler=sampler,# if train else None,
+                            shuffle=False,
+                            sampler=sampler,
                             drop_last=True,
                             pin_memory=torch.cuda.is_available())
 
     if train:
         return dataloader, dataset, sampler
     else:
-        return dataloader, dataset
+        return dataloader, dataset, sampler
 
 
 
@@ -437,6 +439,8 @@ class GetDataset(Dataset):
         return raw_data
 
     def __len__(self):
+        if self.params.sel_dates and not self.train:
+            return len(self.dates_all)
         return len(self.inference_idxs)
 
 
@@ -493,11 +497,15 @@ class GetDataset(Dataset):
         
         # Condition for autoregression
         elif lead_times:
-            if self.params.sel_dates:
+            if self.params.sel_dates and not self.train:
                 start_time = self.dates_all[index]
-                print("start_time",start_time)
+                print("select the fixed dates")
+                
+                #print("start_time",start_time)
             else:
+                
                 start_time = self.start_date + timedelta(hours=self.dates[index])
+                print("start_time",start_time)
 
             # Load initial conditions
             data_in = self._get_data(start_time, out = False)
@@ -541,18 +549,6 @@ class GetDataset(Dataset):
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
 
-                    if self.params.predict_delta:
-                        if step == 1:
-                            surface_delta_target = targets_surface[-1] - surface_t
-                            upper_air_delta_target = targets_upper_air[-1] - upper_air_t
-                        else:
-                            surface_delta_target = targets_surface[-1] - targets_surface[-2]
-                            upper_air_delta_target = targets_upper_air[-1] - targets_upper_air[-2]
-                        surface_delta_target = self.surface_delta_transform(surface_delta_target)
-                        upper_air_delta_target = self.upper_air_delta_transform(upper_air_delta_target)
-
-                        targets_delta_surface.append(surface_delta_target)
-                        targets_delta_upper_air.append(upper_air_delta_target)
 
                 for step in range(0, max_lead_time):
                     targets_surface[step] = self.surface_transform(targets_surface[step])
@@ -567,9 +563,7 @@ class GetDataset(Dataset):
                 targets_upper_air = torch.stack(targets_upper_air, dim=0)
                 if len(self.diagnostic_variables) > 0:
                     targets_diagnostic = torch.stack(targets_diagnostic, dim=0)
-                if self.params.predict_delta:
-                    targets_delta_surface = torch.stack(targets_delta_surface, dim=0)
-                    targets_delta_upper_air = torch.stack(targets_delta_upper_air, dim=0)
+
                     
 
         else:
