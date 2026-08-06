@@ -329,13 +329,19 @@ class RolloutFinetuner(Trainer):
                 crps_diag    = torch.tensor(0.0, device=self.device)
                 precip_rmse  = torch.tensor(0.0, device=self.device)
 
+                precip_idxs = [i for i, v in enumerate(self.params.diagnostic_variables)
+                                   if 'precipitation' in v]
+                
                 if tgt_diag is not None and self.diff_model.num_diagnostic_vars > 0:
                     tgt_diag_rep = tgt_diag.repeat_interleave(num_samples, dim=0)
-                    crps_diag = crps_loss_fn(pred_diag, tgt_diag_rep)
-                    step_loss = step_loss + 0.8 * crps_diag
+                    #Before checkpoint 1000, we use the following 
+                    #crps_diag = crps_loss_fn(pred_diag, tgt_diag_rep)
+                    #step_loss = step_loss + 0.8 * crps_diag
+                    #After checkpoitn 1000  only oprimtize the precpitaiton
+                    crps_diag = crps_loss_fn(pred_diag[:, precip_idxs], tgt_diag_rep[:, precip_idxs])
+                    step_loss = crps_diag
 
-                    precip_idxs = [i for i, v in enumerate(self.params.diagnostic_variables)
-                                   if 'precipitation' in v]
+
                     if precip_idxs:
                         import math
                         lat_w = torch.cos(torch.tensor(self.params.lat, dtype=torch.float32,
@@ -346,7 +352,11 @@ class RolloutFinetuner(Trainer):
                             tgt_precip  = tgt_diag[:, precip_idxs]
                             precip_rmse = precip_rmse + torch.sqrt(
                                 (lat_w * (pred_precip - tgt_precip) ** 2).mean())
-                        step_loss = step_loss + 0.1 * precip_rmse
+                        #before checkpoint 1000
+                        
+                        #step_loss = step_loss + 0.1 * precip_rmse
+                        #after checkpoit 1000
+                        step_loss = step_loss
 
             # Scale and backward for this step; accumulate gradients across steps.
             # Dividing by num_rollout here matches the averaging done at the end.
