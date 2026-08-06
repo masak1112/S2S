@@ -89,28 +89,33 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, load_targets = True):
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, load_targets)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
 
-
+    pin_memory = torch.cuda.is_available() and (not validate or not load_targets)
+    print("Pin memory is set to ", pin_memory)
+    dataloader_kwargs = {}
+    if params.num_data_workers > 0:
+        dataloader_kwargs["prefetch_factor"] = 1 if validate and not load_targets else 2
+        dataloader_kwargs["persistent_workers"] = False
     dataloader = DataLoader(dataset,
                             batch_size=int(params.batch_size),
                             num_workers=params.num_data_workers,
                             shuffle=False,  # (sampler is None),
                             sampler=sampler,# if train else None,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available())
+                            pin_memory=pin_memory,
+                            **dataloader_kwargs,
+                    ) #     
 
     if train:
         return dataloader, dataset, sampler
     else:
         return dataloader, dataset
-
-
 
 def get_initialization_dates(year):
     """
@@ -132,7 +137,7 @@ def get_initialization_dates(year):
     return filtered_dates_yr
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False):
+    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, load_targets = True):
         self.params = params
         self.data_dir = data_dir
         self.train = train
@@ -140,6 +145,7 @@ class GetDataset(Dataset):
             self.validate = validate
         else:
             self.validate = False
+        self.load_targets = load_targets
         if not self.train and not self.params.forecast_lead_times:
             self.params['forecast_lead_times'] = [1]
         self.epsilon_factor = self.params.epsilon_factor
@@ -178,7 +184,7 @@ class GetDataset(Dataset):
             
 
         if hasattr(params, 'ocean_variables'):
-            if len(params.land_variables) > 0:
+            if len(params.ocean_variables) > 0:  #Mahsa - should be ocean_variable not land_variable
                 if any([ocean_variable in self.surface_variables for ocean_variable in params.ocean_variables]):
                     raise ValueError('ocean variables cannot be in surface variables.')
                 self.ocean_variables = params.ocean_variables
@@ -312,7 +318,7 @@ class GetDataset(Dataset):
                 varying_boundary = self._fill_mask(varying_boundary, self.varying_boundary_variables)
                 return upper_air, surface, varying_boundary
             else:
-                return upper_air, diagnostic
+                return upper_air, surface # Mahsa: it was diagnostic before, `diagnostic` is undefined here — NameError
             
 
     def _fill_mask(self, data, variables, optional_variables = None):
@@ -342,13 +348,43 @@ class GetDataset(Dataset):
         return datetime_class_dict[calendar]
 
     def _load_constant_boundary_data(self):
-        constant_boundary_data = torch.from_numpy(self._get_data(self.start_date, variable_list = self.constant_boundary_variables)).to(torch.float32)
+        try:
+            # Prefer the configured start timestamp when the file exists.
+            raw_constant_boundary = self._get_data(self.start_date, variable_list=self.constant_boundary_variables)
+        except FileNotFoundError as exc:
+            # Some datasets are missing index 0000 for a year; fall back to the first
+            # available file in the start year (or the nearest available year).
+            fallback_path = self._get_first_available_data_file(self.start_date.year)
+            logging.warning(
+                "Could not open constant-boundary file for start date %s. "
+                "Falling back to %s. Original error: %s",
+                self.start_date,
+                fallback_path,
+                exc,
+            )
+            raw_constant_boundary = get_data_given_path(fallback_path, self.constant_boundary_variables)
+
+        constant_boundary_data = torch.from_numpy(raw_constant_boundary).to(torch.float32)
         constant_boundary_data = self._fill_mask(constant_boundary_data, self.constant_boundary_variables)
         land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == 'land_sea_mask'].detach())
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
         constant_boundary_std = torch.std(constant_boundary_data, dim=(1,2))
         constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_boundary_std.reshape(-1, 1, 1)
         return constant_boundary_data, land_mask
+
+    def _get_first_available_data_file(self, preferred_year):
+        preferred_pattern = join(self.data_dir, f"{preferred_year}_*.h5")
+        preferred_files = sorted(glob.glob(preferred_pattern))
+        if preferred_files:
+            return preferred_files[0]
+
+        any_files = sorted(glob.glob(join(self.data_dir, "*.h5")))
+        if any_files:
+            return any_files[0]
+
+        raise FileNotFoundError(
+            f"No HDF5 files found under data directory: {self.data_dir}"
+        )
 
     def load_mean_std(self, mean_file, std_file, datavars, upper_air = True):
         if upper_air:
@@ -391,13 +427,29 @@ class GetDataset(Dataset):
             self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1)
     
     def surface_inv_transform(self, data):
+        if isinstance(data, torch.Tensor) and data.device.type != 'cpu':
+            if not hasattr(self, '_surface_mean_gpu') or self._surface_mean_gpu.device != data.device or self._surface_mean_gpu.dtype != data.dtype:
+                self._surface_mean_gpu = self.surface_mean.to(data.device, dtype=data.dtype)
+                self._surface_std_gpu  = self.surface_std.to(data.device, dtype=data.dtype)
+            return data * self._surface_std_gpu.reshape(1, -1, 1, 1) + self._surface_mean_gpu.reshape(1, -1, 1, 1)
         return data * self.surface_std.reshape(1, -1, 1, 1) + self.surface_mean.reshape(1, -1, 1, 1)
-    
+
     def upper_air_inv_transform(self, data):
+        if isinstance(data, torch.Tensor) and data.device.type != 'cpu':
+            if not hasattr(self, '_upper_air_mean_gpu') or self._upper_air_mean_gpu.device != data.device or self._upper_air_mean_gpu.dtype != data.dtype:
+                self._upper_air_mean_gpu = self.upper_air_mean.to(data.device, dtype=data.dtype)
+                self._upper_air_std_gpu  = self.upper_air_std.to(data.device, dtype=data.dtype)
+            return data * self._upper_air_std_gpu.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
+                self._upper_air_mean_gpu.reshape(1, len(self.upper_air_variables), -1, 1, 1)
         return data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
             self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
-    
+
     def diagnostic_inv_transform(self, data):
+        if isinstance(data, torch.Tensor) and data.device.type != 'cpu':
+            if not hasattr(self, '_diagnostic_mean_gpu') or self._diagnostic_mean_gpu.device != data.device or self._diagnostic_mean_gpu.dtype != data.dtype:
+                self._diagnostic_mean_gpu = self.diagnostic_mean.to(data.device, dtype=data.dtype)
+                self._diagnostic_std_gpu  = self.diagnostic_std.to(data.device, dtype=data.dtype)
+            return data * self._diagnostic_std_gpu.reshape(1, -1, 1, 1) + self._diagnostic_mean_gpu.reshape(1, -1, 1, 1)
         return data * self.diagnostic_std.reshape(1, -1, 1, 1) + self.diagnostic_mean.reshape(1, -1, 1, 1)
 
     def surface_delta_transform(self, data):
@@ -462,7 +514,7 @@ class GetDataset(Dataset):
                 upper_air_t_1, surface_t_1, diagnostic_t_1 = self._reshape_and_mask_variables(data_out, out = True)
             else:
                 upper_air_t_1, surface_t_1 = self._reshape_and_mask_variables(data_out, out = True)
-            
+
             if self.params.predict_delta:
                 surface_t_1 = surface_t_1 - surface_t
                 upper_air_t_1 = upper_air_t_1 - upper_air_t
@@ -490,7 +542,7 @@ class GetDataset(Dataset):
                 else:
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
                 upper_air_t = upper_air_t + upper_air_t_noise
-        
+
         # Condition for autoregression
         elif lead_times:
             if self.params.sel_dates:
@@ -510,12 +562,13 @@ class GetDataset(Dataset):
             boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
+
             varying_boundary_data.extend([self._fill_mask(\
-                torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+                    torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data_i) for varying_boundary_data_i in varying_boundary_data], dim=0)
 
-
-            if self.validate: 
+            if self.validate and self.load_targets:
                 # Load targets for each time step up to the maximum lead time
                 targets_surface = []
                 targets_upper_air = []
@@ -537,7 +590,7 @@ class GetDataset(Dataset):
                         targets_diagnostic.append(diagnostic_target)
                     else:
                         upper_air_target, surface_target = self._reshape_and_mask_variables(raw_target_data, out = True)
-        
+
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
 
@@ -559,7 +612,7 @@ class GetDataset(Dataset):
                     targets_upper_air[step] = self.upper_air_transform(targets_upper_air[step])
                     if len(self.diagnostic_variables) > 0:
                         targets_diagnostic[step] = self.diagnostic_transform(targets_diagnostic[step])
-                
+
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
 
@@ -570,13 +623,15 @@ class GetDataset(Dataset):
                 if self.params.predict_delta:
                     targets_delta_surface = torch.stack(targets_delta_surface, dim=0)
                     targets_delta_upper_air = torch.stack(targets_delta_upper_air, dim=0)
-                    
+            else:
+                surface_t = self.surface_transform(surface_t)
+                upper_air_t = self.upper_air_transform(upper_air_t)
 
         else:
             start_time = self.start_date + timedelta(hours=self.dates[index])
             data_in = self._get_data(start_time, out = False)
             if len(self.varying_boundary_variables) > 0:
-                surface_t, upper_air_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False)
+                upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False) #Mahsa: switched surface and upper air- _reshape_and_mask_variables returns (upper_air, surface, varying_boundary)
                 varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
             else:
                 surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out=False)
@@ -609,6 +664,8 @@ class GetDataset(Dataset):
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
         ### ERROR - Need to have data loader return times for validation
         elif self.validate and lead_times:
+            if not self.load_targets:
+                return surface_t, upper_air_t, varying_boundary_data, start_time_tensor
             if self.params.predict_delta:
                 if len(self.diagnostic_variables) > 0:
                     return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, targets_delta_surface, targets_delta_upper_air, \
@@ -628,7 +685,7 @@ class GetDataset(Dataset):
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data
             else:
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
-            
+
 def get_infer_data(params, files_pattern, distributed, year_start, year_end, step=100, num_inferences = 0, validate = False):
 
     dataset = GetDataset(params, files_pattern, year_start, year_end, False, num_inferences, validate)
@@ -638,6 +695,8 @@ def get_infer_data(params, files_pattern, distributed, year_start, year_end, ste
                             shuffle=False,  # (sampler is None),
                             sampler=None,# if train else None,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available())
+                            pin_memory=torch.cuda.is_available(),
+                            persistent_workers=True,
+                            prefetch_factor=8)
 
     return dataloader, dataset
