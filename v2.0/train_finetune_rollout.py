@@ -339,7 +339,9 @@ class RolloutFinetuner(Trainer):
                     #step_loss = step_loss + 0.8 * crps_diag
                     #After checkpoitn 1000  only oprimtize the precpitaiton
                     crps_diag = crps_loss_fn(pred_diag[:, precip_idxs], tgt_diag_rep[:, precip_idxs])
-                    step_loss = crps_diag
+                    
+                    #step_loss = crps_diag
+                    step_loss = step_loss + 0.8 * crps_diag
 
 
                     if precip_idxs:
@@ -519,7 +521,7 @@ if __name__ == '__main__':
     parser.add_argument('--local-rank',           type=int)
     parser.add_argument('--max_rollout_steps',    default=10, type=int,
                         help='Maximum number of autoregressive rollout steps')
-    parser.add_argument('--rollout_step_interval', default=2000, type=int,
+    parser.add_argument('--rollout_step_interval', default=1000, type=int,
                         help='Increase rollout steps by 1 every N iterations')
     parser.add_argument('--initial_rollout_steps', default=1, type=int,
                         help='Rollout step count to start from (default 1)')
@@ -589,9 +591,12 @@ if __name__ == '__main__':
             state = OrderedDict((k[7:], v) for k, v in state.items())
         trainer.diff_model.load_state_dict(state, strict=True)
         trainer.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        target_lr = float(getattr(params, 'finetune_lr', params.lr))
+        for pg in trainer.optimizer.param_groups:
+            pg['lr'] = target_lr
         trainer.epoch = ckpt.get('epoch', 0)
         trainer.iters = ckpt.get('iters', 0)
         logging.info(f"Resumed from {args.finetune_ckpt} "
-                     f"(epoch={trainer.epoch}, iters={trainer.iters})")
+                     f"(epoch={trainer.epoch}, iters={trainer.iters}, lr={target_lr})")
     trainer.run(epochs=trainer.epoch + args.epochs)
     logging.info('Rollout fine-tuning DONE — rank %d' % world_rank)

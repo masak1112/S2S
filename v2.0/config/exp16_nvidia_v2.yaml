@@ -2,7 +2,7 @@
 ### base config ###
 base_config: &BASE
   loss: 'weightedl1'
-  lr: 0.00001
+  lr: 0.000001
   weight_decay: 3e-6
   scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau' #CosineAnnealingLR
   num_data_workers: 1
