@@ -10,10 +10,10 @@ https://pytorch.org/docs/stable/distributed.html#launch-utility for
 further instructions
 
   main()
-W0722 22:21:24.619000 2272423 site-packages/torch/distributed/run.py:792] 
-W0722 22:21:24.619000 2272423 site-packages/torch/distributed/run.py:792] *****************************************
-W0722 22:21:24.619000 2272423 site-packages/torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
-W0722 22:21:24.619000 2272423 site-packages/torch/distributed/run.py:792] *****************************************
+W0723 18:28:09.234000 3992807 site-packages/torch/distributed/run.py:792] 
+W0723 18:28:09.234000 3992807 site-packages/torch/distributed/run.py:792] *****************************************
+W0723 18:28:09.234000 3992807 site-packages/torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0723 18:28:09.234000 3992807 site-packages/torch/distributed/run.py:792] *****************************************
 /home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
   warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
 /home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
@@ -22,161 +22,161 @@ W0722 22:21:24.619000 2272423 site-packages/torch/distributed/run.py:792] ******
   warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
 /home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
   warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
-2026-07-22 22:21:27,949 - root - INFO - Torch version: 2.6.0+cu124
-2026-07-22 22:21:27,949 - root - INFO - Torch version: 2.6.0+cu124
-2026-07-22 22:21:28,043 - root - INFO - Torch version: 2.6.0+cu124
-2026-07-22 22:21:28,233 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-23 18:28:12,976 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-23 18:28:12,976 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-23 18:28:12,976 - root - INFO - Torch version: 2.6.0+cu124
+2026-07-23 18:28:13,036 - root - INFO - Torch version: 2.6.0+cu124
 World rank: 0
 World rank: 1
 Has diagnostic: True
 World size from OS: 4
 World rank: 3
-Has diagnostic: True
-World size from OS: 4
-Has diagnostic: True
-World size from OS: 4
 World rank: 2
 Has diagnostic: True
 World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+World size from Cuda: 4
+4
+##########WORLD RANK: TESTING  0
+2026-07-23 18:28:17,241 - root - INFO - --------------- Versions ---------------
+2026-07-23 18:28:17,243 - root - INFO - Torch: 2.6.0+cu124
+2026-07-23 18:28:17,243 - root - INFO - ----------------------------------------
+2026-07-23 18:28:17,243 - root - INFO - ------------------ Configuration ------------------
+2026-07-23 18:28:17,243 - root - INFO - Configuration file: /data/bing/S2S/v2.0/config/exp16_nvidia_v2.yaml
+2026-07-23 18:28:17,243 - root - INFO - Configuration name: S2S
+2026-07-23 18:28:17,243 - root - INFO - data_dir /data/ERA5
+2026-07-23 18:28:17,243 - root - INFO - upper_air_variables ['temperature', 'u_component_of_wind', 'v_component_of_wind', 'specific_humidity', 'geopotential']
+2026-07-23 18:28:17,244 - root - INFO - surface_variables ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind', 'mean_sea_level_pressure', 'surface_pressure']
+2026-07-23 18:28:17,244 - root - INFO - diagnostic_variables ['total_precipitation_24hr', 'mean_top_net_long_wave_radiation_flux']
+2026-07-23 18:28:17,244 - root - INFO - land_variables ['volumetric_soil_water_layer_1', 'soil_temperature_level_1', 'skin_temperature']
+2026-07-23 18:28:17,244 - root - INFO - ocean_variables ['sea_surface_temperature']
+2026-07-23 18:28:17,244 - root - INFO - constant_boundary_variables ['land_sea_mask', 'geopotential_at_surface']
+2026-07-23 18:28:17,244 - root - INFO - varying_boundary_variables ['toa_incident_solar_radiation']
+2026-07-23 18:28:17,244 - root - INFO - mask_fill {'volumetric_soil_water_layer_1': 0.0, 'soil_temperature_level_1': 270.0, 'skin_temperature': 270.0, 'sea_surface_temperature': 270.0, 'sea_ice_cover': 0.0, 'snow_depth': 0.0}
+2026-07-23 18:28:17,244 - root - INFO - mask_output False
+2026-07-23 18:28:17,244 - root - INFO - train_year_start 1984
+2026-07-23 18:28:17,244 - root - INFO - train_year_end 2018
+2026-07-23 18:28:17,244 - root - INFO - val_year_start 2018
+2026-07-23 18:28:17,244 - root - INFO - val_year_end 2019
+2026-07-23 18:28:17,244 - root - INFO - data_timedelta_hours 6
+2026-07-23 18:28:17,244 - root - INFO - surface_mean pangu_s2s_1979-2018_surface_mean.nc
+2026-07-23 18:28:17,244 - root - INFO - surface_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-23 18:28:17,244 - root - INFO - surface_ff_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-23 18:28:17,244 - root - INFO - upper_air_mean pangu_s2s_1979-2018_mean.nc
+2026-07-23 18:28:17,244 - root - INFO - upper_air_std pangu_s2s_1979-2018_std.nc
+2026-07-23 18:28:17,244 - root - INFO - upper_air_ff_std pangu_s2s_1979-2018_std.nc
+2026-07-23 18:28:17,245 - root - INFO - boundary_mean pangu_s2s_1979-2018_surface_mean.nc
+2026-07-23 18:28:17,245 - root - INFO - boundary_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-23 18:28:17,245 - root - INFO - diagnostic_mean pangu_s2s_1979-2018_surface_mean.nc
+2026-07-23 18:28:17,245 - root - INFO - diagnostic_std pangu_s2s_1979-2018_surface_std.nc
+2026-07-23 18:28:17,245 - root - INFO - climatology_file 1979-2018_mean_climatology.nc
+2026-07-23 18:28:17,245 - root - INFO - calendar standard
+2026-07-23 18:28:17,245 - root - INFO - timedelta_hours 24
+2026-07-23 18:28:17,245 - root - INFO - batch_size 1
+2026-07-23 18:28:17,245 - root - INFO - max_epochs 200
+2026-07-23 18:28:17,245 - root - INFO - has_year_zero False
+2026-07-23 18:28:17,245 - root - INFO - num_levels 17upper_air_boundary
+2026-07-23 18:28:17,245 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-07-23 18:28:17,245 - root - INFO - horizontal_resolution [180, 360]
+2026-07-23 18:28:17,245 - root - INFO - depths [2, 6, 6, 2]
+2026-07-23 18:28:17,245 - root - INFO - predict_delta False
+2026-07-23 18:28:17,245 - root - INFO - patch_size [2, 4, 4]
+2026-07-23 18:28:17,245 - root - INFO - updown_scale_factor 2
+2026-07-23 18:28:17,245 - root - INFO - window_size [2, 6, 12]
+2026-07-23 18:28:17,245 - root - INFO - epsilon_factor 0
+2026-07-23 18:28:17,246 - root - INFO - upper_air_boundary False
+2026-07-23 18:28:17,246 - root - INFO - subpixel_deconv True
+2026-07-23 18:28:17,246 - root - INFO - recovery_head True
+2026-07-23 18:28:17,246 - root - INFO - diagnostic_head False
+2026-07-23 18:28:17,246 - root - INFO - vertical_windowing True
+2026-07-23 18:28:17,246 - root - INFO - train_year_to_year False
+2026-07-23 18:28:17,246 - root - INFO - diagnostic_acc False
+2026-07-23 18:28:17,246 - root - INFO - diagnostic_gif False
+2026-07-23 18:28:17,246 - root - INFO - diagnostic_spectra False
+2026-07-23 18:28:17,246 - root - INFO - forecast_lead_times [1, 2, 10, 15, 45]
+2026-07-23 18:28:17,246 - root - INFO - diagnostic_logs True
+2026-07-23 18:28:17,246 - root - INFO - dropout_rate 0.1
+2026-07-23 18:28:17,246 - root - INFO - ic_noise_std 0.02
+2026-07-23 18:28:17,246 - root - INFO - step_noise_std 0.005
+2026-07-23 18:28:17,246 - root - INFO - step_noise_growth sqrt
+2026-07-23 18:28:17,246 - root - INFO - sel_dates True
+2026-07-23 18:28:17,246 - root - INFO - lev plev
+2026-07-23 18:28:17,246 - root - INFO - num_inferences 10000
+2026-07-23 18:28:17,246 - root - INFO - use_reentrant False
+2026-07-23 18:28:17,247 - root - INFO - checkpointing 2
+2026-07-23 18:28:17,247 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-07-23 18:28:17,247 - root - INFO - lon [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0, 47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0, 61.0, 62.0, 63.0, 64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0, 79.0, 80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0, 138.0, 139.0, 140.0, 141.0, 142.0, 143.0, 144.0, 145.0, 146.0, 147.0, 148.0, 149.0, 150.0, 151.0, 152.0, 153.0, 154.0, 155.0, 156.0, 157.0, 158.0, 159.0, 160.0, 161.0, 162.0, 163.0, 164.0, 165.0, 166.0, 167.0, 168.0, 169.0, 170.0, 171.0, 172.0, 173.0, 174.0, 175.0, 176.0, 177.0, 178.0, 179.0, 180.0, 181.0, 182.0, 183.0, 184.0, 185.0, 186.0, 187.0, 188.0, 189.0, 190.0, 191.0, 192.0, 193.0, 194.0, 195.0, 196.0, 197.0, 198.0, 199.0, 200.0, 201.0, 202.0, 203.0, 204.0, 205.0, 206.0, 207.0, 208.0, 209.0, 210.0, 211.0, 212.0, 213.0, 214.0, 215.0, 216.0, 217.0, 218.0, 219.0, 220.0, 221.0, 222.0, 223.0, 224.0, 225.0, 226.0, 227.0, 228.0, 229.0, 230.0, 231.0, 232.0, 233.0, 234.0, 235.0, 236.0, 237.0, 238.0, 239.0, 240.0, 241.0, 242.0, 243.0, 244.0, 245.0, 246.0, 247.0, 248.0, 249.0, 250.0, 251.0, 252.0, 253.0, 254.0, 255.0, 256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0, 268.0, 269.0, 270.0, 271.0, 272.0, 273.0, 274.0, 275.0, 276.0, 277.0, 278.0, 279.0, 280.0, 281.0, 282.0, 283.0, 284.0, 285.0, 286.0, 287.0, 288.0, 289.0, 290.0, 291.0, 292.0, 293.0, 294.0, 295.0, 296.0, 297.0, 298.0, 299.0, 300.0, 301.0, 302.0, 303.0, 304.0, 305.0, 306.0, 307.0, 308.0, 309.0, 310.0, 311.0, 312.0, 313.0, 314.0, 315.0, 316.0, 317.0, 318.0, 319.0, 320.0, 321.0, 322.0, 323.0, 324.0, 325.0, 326.0, 327.0, 328.0, 329.0, 330.0, 331.0, 332.0, 333.0, 334.0, 335.0, 336.0, 337.0, 338.0, 339.0, 340.0, 341.0, 342.0, 343.0, 344.0, 345.0, 346.0, 347.0, 348.0, 349.0, 350.0, 351.0, 352.0, 353.0, 354.0, 355.0, 356.0, 357.0, 358.0, 359.0]
+2026-07-23 18:28:17,247 - root - INFO - loss weightedl1
+2026-07-23 18:28:17,247 - root - INFO - lr 0.0001
+2026-07-23 18:28:17,247 - root - INFO - weight_decay 3e-06
+2026-07-23 18:28:17,247 - root - INFO - scheduler CosineAnnealingLR
+2026-07-23 18:28:17,247 - root - INFO - num_data_workers 1
+2026-07-23 18:28:17,247 - root - INFO - oc_pct_start 0.1
+2026-07-23 18:28:17,247 - root - INFO - oc_div_factor 100000.0
+2026-07-23 18:28:17,247 - root - INFO - oc_final_div_factor 0.00025
+2026-07-23 18:28:17,247 - root - INFO - log_to_screen True
+2026-07-23 18:28:17,247 - root - INFO - log_to_wandb True
+2026-07-23 18:28:17,247 - root - INFO - wandb_offline False
+2026-07-23 18:28:17,247 - root - INFO - save_checkpoint True
+2026-07-23 18:28:17,247 - root - INFO - optimizer_type Adam
+2026-07-23 18:28:17,247 - root - INFO - plot_animations False
+2026-07-23 18:28:17,247 - root - INFO - nettype pangu_plasim
+2026-07-23 18:28:17,248 - root - INFO - group Pangu_plasim_S2S
+2026-07-23 18:28:17,248 - root - INFO - exp_dir results
+2026-07-23 18:28:17,248 - root - INFO - fresh_start False
+2026-07-23 18:28:17,248 - root - INFO - use_transformer_engine False
+2026-07-23 18:28:17,248 - root - INFO - early_stopping False
+2026-07-23 18:28:17,248 - root - INFO - project Pangu
+2026-07-23 18:28:17,248 - root - INFO - name S2S_si_c1_full_state
+2026-07-23 18:28:17,248 - root - INFO - entity proj-ai-weather
+2026-07-23 18:28:17,248 - root - INFO - vae_loss True
+2026-07-23 18:28:17,248 - root - INFO - vae_loss_weight 0.01
+2026-07-23 18:28:17,248 - root - INFO - mode train
+2026-07-23 18:28:17,248 - root - INFO - diffusion_model_type SI
+2026-07-23 18:28:17,248 - root - INFO - num_ensemble_members 1
+2026-07-23 18:28:17,248 - root - INFO - component 8
+2026-07-23 18:28:17,248 - root - INFO - base_channels 2
+2026-07-23 18:28:17,248 - root - INFO - z_channels 2
+2026-07-23 18:28:17,248 - root - INFO - test_iterations 10000000000
+2026-07-23 18:28:17,248 - root - INFO - checkpoint_path_vae_c1 /data/bing/S2S/checkpoints/c1/ckpt.tar
+2026-07-23 18:28:17,248 - root - INFO - checkpoint_path_det /data/bing/S2S/checkpoints/determinstic/ckpt.tar
+2026-07-23 18:28:17,248 - root - INFO - checkpoint_path_diff /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/last_ckpt.tar
+2026-07-23 18:28:17,249 - root - INFO - run_iter 1
+2026-07-23 18:28:17,249 - root - INFO - has_diagnostic True
+2026-07-23 18:28:17,249 - root - INFO - world_size 4
+2026-07-23 18:28:17,249 - root - INFO - global_batch_size 4
+2026-07-23 18:28:17,249 - root - INFO - inference_steps 45
+2026-07-23 18:28:17,249 - root - INFO - experiment_dir /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state
+2026-07-23 18:28:17,249 - root - INFO - checkpoint_path /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/training_checkpoints/ckpt.tar
+2026-07-23 18:28:17,249 - root - INFO - best_checkpoint_path /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/training_checkpoints/best_ckpt.tar
+2026-07-23 18:28:17,249 - root - INFO - config_filepath /data/bing/S2S/v2.0/HPC_scripts/../config/exp16_nvidia_v2.yaml
+2026-07-23 18:28:17,249 - root - INFO - run_num si_c1_full_state
+2026-07-23 18:28:17,249 - root - INFO - resuming False
+2026-07-23 18:28:17,249 - root - INFO - local_rank 0
+2026-07-23 18:28:17,249 - root - INFO - enable_amp True
+2026-07-23 18:28:17,249 - root - INFO - ---------------------------------------------------
+2026-07-23 18:28:17,259 - root - INFO - Synchronous Saving
+2026-07-23 18:28:17,259 - root - INFO - rank 0, begin data loader init
+World size from Cuda: 4
+4
+##########WORLD RANK: TESTING  1
 World size from Cuda: 4
 4
 ##########WORLD RANK: TESTING  3
 World size from Cuda: 4
 4
-##########WORLD RANK: TESTING  0
-World size from Cuda: 4
-4
 ##########WORLD RANK: TESTING  2
-World size from Cuda: 4
-4
-##########WORLD RANK: TESTING  1
-2026-07-22 22:21:31,499 - root - INFO - --------------- Versions ---------------
-2026-07-22 22:21:31,499 - root - INFO - Torch: 2.6.0+cu124
-2026-07-22 22:21:31,499 - root - INFO - ----------------------------------------
-2026-07-22 22:21:31,500 - root - INFO - ------------------ Configuration ------------------
-2026-07-22 22:21:31,500 - root - INFO - Configuration file: /data/bing/S2S/v2.0/config/exp16_nvidia.yaml
-2026-07-22 22:21:31,500 - root - INFO - Configuration name: S2S
-2026-07-22 22:21:31,500 - root - INFO - data_dir /data/ERA5
-2026-07-22 22:21:31,500 - root - INFO - upper_air_variables ['temperature', 'u_component_of_wind', 'v_component_of_wind', 'specific_humidity', 'geopotential']
-2026-07-22 22:21:31,500 - root - INFO - surface_variables ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind', 'mean_sea_level_pressure', 'surface_pressure']
-2026-07-22 22:21:31,500 - root - INFO - diagnostic_variables ['total_precipitation_24hr', 'mean_top_net_long_wave_radiation_flux']
-2026-07-22 22:21:31,500 - root - INFO - land_variables ['volumetric_soil_water_layer_1', 'soil_temperature_level_1', 'skin_temperature']
-2026-07-22 22:21:31,500 - root - INFO - ocean_variables ['sea_surface_temperature']
-2026-07-22 22:21:31,500 - root - INFO - constant_boundary_variables ['land_sea_mask', 'geopotential_at_surface']
-2026-07-22 22:21:31,500 - root - INFO - varying_boundary_variables ['toa_incident_solar_radiation']
-2026-07-22 22:21:31,500 - root - INFO - mask_fill {'volumetric_soil_water_layer_1': 0.0, 'soil_temperature_level_1': 270.0, 'skin_temperature': 270.0, 'sea_surface_temperature': 270.0, 'sea_ice_cover': 0.0, 'snow_depth': 0.0}
-2026-07-22 22:21:31,500 - root - INFO - mask_output False
-2026-07-22 22:21:31,500 - root - INFO - train_year_start 1984
-2026-07-22 22:21:31,500 - root - INFO - train_year_end 2018
-2026-07-22 22:21:31,500 - root - INFO - val_year_start 2018
-2026-07-22 22:21:31,500 - root - INFO - val_year_end 2019
-2026-07-22 22:21:31,500 - root - INFO - data_timedelta_hours 6
-2026-07-22 22:21:31,500 - root - INFO - surface_mean pangu_s2s_1979-2018_surface_mean.nc
-2026-07-22 22:21:31,500 - root - INFO - surface_std pangu_s2s_1979-2018_surface_std.nc
-2026-07-22 22:21:31,500 - root - INFO - surface_ff_std pangu_s2s_1979-2018_surface_std.nc
-2026-07-22 22:21:31,500 - root - INFO - upper_air_mean pangu_s2s_1979-2018_mean.nc
-2026-07-22 22:21:31,500 - root - INFO - upper_air_std pangu_s2s_1979-2018_std.nc
-2026-07-22 22:21:31,500 - root - INFO - upper_air_ff_std pangu_s2s_1979-2018_std.nc
-2026-07-22 22:21:31,500 - root - INFO - boundary_mean pangu_s2s_1979-2018_surface_mean.nc
-2026-07-22 22:21:31,500 - root - INFO - boundary_std pangu_s2s_1979-2018_surface_std.nc
-2026-07-22 22:21:31,501 - root - INFO - diagnostic_mean pangu_s2s_1979-2018_surface_mean.nc
-2026-07-22 22:21:31,501 - root - INFO - diagnostic_std pangu_s2s_1979-2018_surface_std.nc
-2026-07-22 22:21:31,501 - root - INFO - climatology_file 1979-2018_mean_climatology.nc
-2026-07-22 22:21:31,501 - root - INFO - calendar standard
-2026-07-22 22:21:31,501 - root - INFO - timedelta_hours 24
-2026-07-22 22:21:31,501 - root - INFO - batch_size 1
-2026-07-22 22:21:31,501 - root - INFO - max_epochs 200
-2026-07-22 22:21:31,501 - root - INFO - has_year_zero False
-2026-07-22 22:21:31,501 - root - INFO - num_levels 17upper_air_boundary
-2026-07-22 22:21:31,501 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
-2026-07-22 22:21:31,501 - root - INFO - horizontal_resolution [180, 360]
-2026-07-22 22:21:31,501 - root - INFO - depths [2, 6, 6, 2]
-2026-07-22 22:21:31,501 - root - INFO - predict_delta False
-2026-07-22 22:21:31,501 - root - INFO - patch_size [2, 4, 4]
-2026-07-22 22:21:31,501 - root - INFO - updown_scale_factor 2
-2026-07-22 22:21:31,501 - root - INFO - window_size [2, 6, 12]
-2026-07-22 22:21:31,501 - root - INFO - epsilon_factor 0
-2026-07-22 22:21:31,501 - root - INFO - upper_air_boundary False
-2026-07-22 22:21:31,501 - root - INFO - subpixel_deconv True
-2026-07-22 22:21:31,501 - root - INFO - recovery_head True
-2026-07-22 22:21:31,501 - root - INFO - diagnostic_head False
-2026-07-22 22:21:31,501 - root - INFO - vertical_windowing True
-2026-07-22 22:21:31,501 - root - INFO - train_year_to_year False
-2026-07-22 22:21:31,501 - root - INFO - diagnostic_acc False
-2026-07-22 22:21:31,501 - root - INFO - diagnostic_gif False
-2026-07-22 22:21:31,502 - root - INFO - diagnostic_spectra False
-2026-07-22 22:21:31,502 - root - INFO - forecast_lead_times [1, 2, 10, 15, 45]
-2026-07-22 22:21:31,502 - root - INFO - diagnostic_logs True
-2026-07-22 22:21:31,502 - root - INFO - dropout_rate 0.1
-2026-07-22 22:21:31,502 - root - INFO - ic_noise_std 0.02
-2026-07-22 22:21:31,502 - root - INFO - step_noise_std 0.005
-2026-07-22 22:21:31,502 - root - INFO - step_noise_growth sqrt
-2026-07-22 22:21:31,502 - root - INFO - sel_dates True
-2026-07-22 22:21:31,502 - root - INFO - lev plev
-2026-07-22 22:21:31,502 - root - INFO - num_inferences 10000
-2026-07-22 22:21:31,502 - root - INFO - use_reentrant False
-2026-07-22 22:21:31,502 - root - INFO - checkpointing 2
-2026-07-22 22:21:31,502 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
-2026-07-22 22:21:31,502 - root - INFO - lon [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0, 47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0, 61.0, 62.0, 63.0, 64.0, 65.0, 66.0, 67.0, 68.0, 69.0, 70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0, 77.0, 78.0, 79.0, 80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0, 124.0, 125.0, 126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0, 138.0, 139.0, 140.0, 141.0, 142.0, 143.0, 144.0, 145.0, 146.0, 147.0, 148.0, 149.0, 150.0, 151.0, 152.0, 153.0, 154.0, 155.0, 156.0, 157.0, 158.0, 159.0, 160.0, 161.0, 162.0, 163.0, 164.0, 165.0, 166.0, 167.0, 168.0, 169.0, 170.0, 171.0, 172.0, 173.0, 174.0, 175.0, 176.0, 177.0, 178.0, 179.0, 180.0, 181.0, 182.0, 183.0, 184.0, 185.0, 186.0, 187.0, 188.0, 189.0, 190.0, 191.0, 192.0, 193.0, 194.0, 195.0, 196.0, 197.0, 198.0, 199.0, 200.0, 201.0, 202.0, 203.0, 204.0, 205.0, 206.0, 207.0, 208.0, 209.0, 210.0, 211.0, 212.0, 213.0, 214.0, 215.0, 216.0, 217.0, 218.0, 219.0, 220.0, 221.0, 222.0, 223.0, 224.0, 225.0, 226.0, 227.0, 228.0, 229.0, 230.0, 231.0, 232.0, 233.0, 234.0, 235.0, 236.0, 237.0, 238.0, 239.0, 240.0, 241.0, 242.0, 243.0, 244.0, 245.0, 246.0, 247.0, 248.0, 249.0, 250.0, 251.0, 252.0, 253.0, 254.0, 255.0, 256.0, 257.0, 258.0, 259.0, 260.0, 261.0, 262.0, 263.0, 264.0, 265.0, 266.0, 267.0, 268.0, 269.0, 270.0, 271.0, 272.0, 273.0, 274.0, 275.0, 276.0, 277.0, 278.0, 279.0, 280.0, 281.0, 282.0, 283.0, 284.0, 285.0, 286.0, 287.0, 288.0, 289.0, 290.0, 291.0, 292.0, 293.0, 294.0, 295.0, 296.0, 297.0, 298.0, 299.0, 300.0, 301.0, 302.0, 303.0, 304.0, 305.0, 306.0, 307.0, 308.0, 309.0, 310.0, 311.0, 312.0, 313.0, 314.0, 315.0, 316.0, 317.0, 318.0, 319.0, 320.0, 321.0, 322.0, 323.0, 324.0, 325.0, 326.0, 327.0, 328.0, 329.0, 330.0, 331.0, 332.0, 333.0, 334.0, 335.0, 336.0, 337.0, 338.0, 339.0, 340.0, 341.0, 342.0, 343.0, 344.0, 345.0, 346.0, 347.0, 348.0, 349.0, 350.0, 351.0, 352.0, 353.0, 354.0, 355.0, 356.0, 357.0, 358.0, 359.0]
-2026-07-22 22:21:31,502 - root - INFO - loss weightedl1
-2026-07-22 22:21:31,502 - root - INFO - lr 0.0001
-2026-07-22 22:21:31,502 - root - INFO - weight_decay 3e-06
-2026-07-22 22:21:31,502 - root - INFO - scheduler CosineAnnealingLR
-2026-07-22 22:21:31,502 - root - INFO - num_data_workers 1
-2026-07-22 22:21:31,502 - root - INFO - oc_pct_start 0.1
-2026-07-22 22:21:31,502 - root - INFO - oc_div_factor 100000.0
-2026-07-22 22:21:31,502 - root - INFO - oc_final_div_factor 0.00025
-2026-07-22 22:21:31,502 - root - INFO - log_to_screen True
-2026-07-22 22:21:31,502 - root - INFO - log_to_wandb True
-2026-07-22 22:21:31,502 - root - INFO - wandb_offline False
-2026-07-22 22:21:31,502 - root - INFO - save_checkpoint True
-2026-07-22 22:21:31,502 - root - INFO - optimizer_type Adam
-2026-07-22 22:21:31,503 - root - INFO - plot_animations False
-2026-07-22 22:21:31,503 - root - INFO - nettype pangu_plasim
-2026-07-22 22:21:31,503 - root - INFO - group Pangu_plasim_S2S
-2026-07-22 22:21:31,503 - root - INFO - exp_dir results
-2026-07-22 22:21:31,503 - root - INFO - fresh_start False
-2026-07-22 22:21:31,503 - root - INFO - use_transformer_engine False
-2026-07-22 22:21:31,503 - root - INFO - early_stopping False
-2026-07-22 22:21:31,503 - root - INFO - project Pangu
-2026-07-22 22:21:31,503 - root - INFO - name S2S_si_c1
-2026-07-22 22:21:31,503 - root - INFO - entity proj-ai-weather
-2026-07-22 22:21:31,503 - root - INFO - vae_loss True
-2026-07-22 22:21:31,503 - root - INFO - vae_loss_weight 0.01
-2026-07-22 22:21:31,503 - root - INFO - mode train
-2026-07-22 22:21:31,503 - root - INFO - diffusion_model_type SI
-2026-07-22 22:21:31,503 - root - INFO - num_ensemble_members 1
-2026-07-22 22:21:31,503 - root - INFO - component 8
-2026-07-22 22:21:31,503 - root - INFO - base_channels 2
-2026-07-22 22:21:31,503 - root - INFO - z_channels 2
-2026-07-22 22:21:31,503 - root - INFO - test_iterations 10000000000
-2026-07-22 22:21:31,503 - root - INFO - checkpoint_path_vae_c1 /data/bing/S2S/checkpoints/c1/ckpt.tar
-2026-07-22 22:21:31,503 - root - INFO - checkpoint_path_det /data/bing/S2S/checkpoints/determinstic/ckpt.tar
-2026-07-22 22:21:31,503 - root - INFO - checkpoint_path_diff /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/last_ckpt.tar
-2026-07-22 22:21:31,503 - root - INFO - run_iter 1
-2026-07-22 22:21:31,503 - root - INFO - has_diagnostic True
-2026-07-22 22:21:31,503 - root - INFO - world_size 4
-2026-07-22 22:21:31,503 - root - INFO - global_batch_size 4
-2026-07-22 22:21:31,503 - root - INFO - inference_steps 45
-2026-07-22 22:21:31,503 - root - INFO - experiment_dir /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1
-2026-07-22 22:21:31,503 - root - INFO - checkpoint_path /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/ckpt.tar
-2026-07-22 22:21:31,503 - root - INFO - best_checkpoint_path /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/best_ckpt.tar
-2026-07-22 22:21:31,504 - root - INFO - config_filepath /data/bing/S2S/v2.0/HPC_scripts/../config/exp16_nvidia.yaml
-2026-07-22 22:21:31,504 - root - INFO - run_num si_c1
-2026-07-22 22:21:31,504 - root - INFO - resuming False
-2026-07-22 22:21:31,504 - root - INFO - local_rank 0
-2026-07-22 22:21:31,504 - root - INFO - enable_amp True
-2026-07-22 22:21:31,504 - root - INFO - ---------------------------------------------------
-2026-07-22 22:21:31,513 - root - INFO - Synchronous Saving
-2026-07-22 22:21:31,513 - root - INFO - rank 0, begin data loader init
 Valid dataset length: 10001
-2026-07-22 22:21:32,265 - root - INFO - Synchronous Saving
-2026-07-22 22:21:32,266 - root - INFO - rank 3, begin data loader init
-2026-07-22 22:21:32,286 - root - INFO - Synchronous Saving
-2026-07-22 22:21:32,287 - root - INFO - rank 2, begin data loader init
-2026-07-22 22:21:32,292 - root - INFO - Synchronous Saving
-2026-07-22 22:21:32,292 - root - INFO - rank 1, begin data loader init
-2026-07-22 22:21:32,298 - root - INFO - rank 0, data loader initialized
+2026-07-23 18:28:18,115 - root - INFO - Synchronous Saving
+2026-07-23 18:28:18,115 - root - INFO - rank 3, begin data loader init
+2026-07-23 18:28:18,115 - root - INFO - Synchronous Saving
+2026-07-23 18:28:18,116 - root - INFO - rank 2, begin data loader init
+2026-07-23 18:28:18,124 - root - INFO - Synchronous Saving
+2026-07-23 18:28:18,124 - root - INFO - rank 1, begin data loader init
+2026-07-23 18:28:18,176 - root - INFO - rank 0, data loader initialized
 Embedding Dimensions are 240
 mask_output is False. Land variables output will not be masked.
 mask_output is False. Ocean variables output will not be masked.
@@ -188,20 +188,7 @@ Patch Size
 /home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
   return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
 Valid dataset length: 10001
-2026-07-22 22:21:32,439 - root - INFO - rank 3, data loader initialized
-Embedding Dimensions are 240
-mask_output is False. Land variables output will not be masked.
-mask_output is False. Ocean variables output will not be masked.
-Num diagnostic vars: 2
-Pad sizes in 3D patch embedding
-(0, 0, 0, 0, 1, 0)
-Patch Size
-(2, 2, 2)
-Valid dataset length: 10001
-/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
-  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
-2026-07-22 22:21:32,454 - root - INFO - rank 2, data loader initialized
-Valid dataset length: 10001
+2026-07-23 18:28:18,299 - root - INFO - rank 2, data loader initialized
 Embedding Dimensions are 240
 mask_output is False. Land variables output will not be masked.
 mask_output is False. Ocean variables output will not be masked.
@@ -212,7 +199,20 @@ Patch Size
 (2, 2, 2)
 /home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
   return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
-2026-07-22 22:21:32,465 - root - INFO - rank 1, data loader initialized
+Valid dataset length: 10001
+2026-07-23 18:28:18,319 - root - INFO - rank 3, data loader initialized
+Embedding Dimensions are 240
+mask_output is False. Land variables output will not be masked.
+mask_output is False. Ocean variables output will not be masked.
+Num diagnostic vars: 2
+Pad sizes in 3D patch embedding
+(0, 0, 0, 0, 1, 0)
+Patch Size
+(2, 2, 2)
+/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/functional.py:539: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:3637.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Valid dataset length: 10001
+2026-07-23 18:28:18,357 - root - INFO - rank 1, data loader initialized
 Embedding Dimensions are 240
 mask_output is False. Land variables output will not be masked.
 mask_output is False. Ocean variables output will not be masked.
@@ -266,35 +266,35 @@ drop_path:
 restore_diff_checkpoint: skipped 363 frozen encoder keys
 Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
 restore_diff_checkpoint: skipped 363 frozen encoder keys
-Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
-restore_diff_checkpoint: skipped 363 frozen encoder keys
 restore_diff_checkpoint: skipped 363 frozen encoder keys
 Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
 Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
+restore_diff_checkpoint: skipped 363 frozen encoder keys
+Loaded VAE weights from checkpoint_path_vae into diff_model.encoder
+Loaded det weights from checkpoint_path_det into diff_model.model_detLoaded det weights from checkpoint_path_det into diff_model.model_det
+
 Loaded det weights from checkpoint_path_det into diff_model.model_det
-2026-07-22 22:21:34,115 - root - INFO - Starting Model Inference Loop...
+Loaded det weights from checkpoint_path_det into diff_model.model_det
+2026-07-23 18:28:20,650 - root - INFO - Starting Model Inference Loop...
 /data/bing/S2S/v2.0/HPC_scripts/../inference.py:304: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
   with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
-start_time 2019-05-02 00:00:00
-Loaded det weights from checkpoint_path_det into diff_model.model_det
 /data/bing/S2S/v2.0/HPC_scripts/../inference.py:304: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
   with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
-start_time 2019-05-09 00:00:00
-Loaded det weights from checkpoint_path_det into diff_model.model_det
 /data/bing/S2S/v2.0/HPC_scripts/../inference.py:304: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
   with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
-start_time 2019-05-06 00:00:00
-Loaded det weights from checkpoint_path_det into diff_model.model_det
 /data/bing/S2S/v2.0/HPC_scripts/../inference.py:304: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
   with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+start_timestart_time  2019-05-09 00:00:002019-05-02 00:00:00
+
 start_time 2019-05-13 00:00:00
+start_time 2019-05-06 00:00:00
 start_time 2019-05-16 00:00:00
-start_time 2019-05-23 00:00:00
 start_time 2019-05-20 00:00:00
+start_time 2019-05-23 00:00:00
 start_time 2019-05-27 00:00:00
 start_time 2019-05-30 00:00:00
-start_time 2019-06-06 00:00:00
 start_time 2019-06-03 00:00:00
+start_time 2019-06-06 00:00:00
 start_time 2019-06-10 00:00:00
 Saving predictions...
 _____________________________________________
@@ -312,95 +312,71 @@ _____________________________________________
 Added all variables to dataset
 Saving predictions...
 _____________________________________________
-start times for the first ensemble member: [cftime.DatetimeGregorian(2019, 5, 9, 0, 0, 0, 0, has_year_zero=False)]
-_____________________________________________
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-_____________________________________________
 start times for the first ensemble member: [cftime.DatetimeGregorian(2019, 5, 6, 0, 0, 0, 0, has_year_zero=False)]
 _____________________________________________
 filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_0.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_0.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_0.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_0.nc
+Saving predictions...
+_____________________________________________
+start times for the first ensemble member: [cftime.DatetimeGregorian(2019, 5, 9, 0, 0, 0, 0, has_year_zero=False)]
+_____________________________________________
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_0.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_0.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_0.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_0.nc
 Saving predictions...
 filenmae for start times: 2019-05-13 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_1.nc
-2026-07-22 22:37:22,910 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
-2026-07-22 22:37:23,138 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead01d.png
-2026-07-22 22:37:23,355 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead05d.png
-2026-07-22 22:37:23,566 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead10d.png
-2026-07-22 22:37:23,776 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead15d.png
-2026-07-22 22:37:23,997 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead30d.png
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_1.nc
+2026-07-23 18:44:19,044 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
+2026-07-23 18:44:19,295 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead01d.png
+2026-07-23 18:44:19,525 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead05d.png
+2026-07-23 18:44:19,750 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead10d.png
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
 Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
+2026-07-23 18:44:19,959 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead15d.png
+2026-07-23 18:44:20,163 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead30d.png
 Saving predictions...
 filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_1.nc
-2026-07-22 22:37:28,726 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
-2026-07-22 22:37:28,976 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead01d.png
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_1.nc
-2026-07-22 22:37:29,082 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
-2026-07-22 22:37:29,192 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead05d.png
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_1.nc
-2026-07-22 22:37:29,279 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
-2026-07-22 22:37:29,320 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead01d.png
-2026-07-22 22:37:29,413 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead10d.png
-2026-07-22 22:37:29,523 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead01d.png
-2026-07-22 22:37:29,544 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead05d.png
-2026-07-22 22:37:29,633 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead15d.png
-2026-07-22 22:37:29,743 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead05d.png
-2026-07-22 22:37:29,762 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead10d.png
-2026-07-22 22:37:29,851 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead30d.png
-2026-07-22 22:37:29,958 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead10d.png
-2026-07-22 22:37:29,978 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead15d.png
-2026-07-22 22:37:30,181 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead15d.png
-2026-07-22 22:37:30,194 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead30d.png
-2026-07-22 22:37:30,400 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/diag_2m_temperature_lead30d.png
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_2.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
 Saving predictions...
 filenmae for start times: 2019-05-09 00:00:00
 _____________________________________________
 Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_2.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_2.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_2.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_1.nc
+2026-07-23 18:44:23,549 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
+2026-07-23 18:44:23,786 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead01d.png
+2026-07-23 18:44:24,001 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead05d.png
+2026-07-23 18:44:24,208 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead10d.png
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_1.nc
+2026-07-23 18:44:24,344 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
+2026-07-23 18:44:24,417 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead15d.png
+2026-07-23 18:44:24,577 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead01d.png
+2026-07-23 18:44:24,629 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead30d.png
+2026-07-23 18:44:24,790 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead05d.png
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_1.nc
+2026-07-23 18:44:24,980 - root - WARNING - ERA5 file not found: /project/pedramh/bing/era5/2019_180x360.nc
+2026-07-23 18:44:24,998 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead10d.png
+2026-07-23 18:44:25,192 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead15d.png
+2026-07-23 18:44:25,194 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead01d.png
+2026-07-23 18:44:25,388 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead30d.png
+2026-07-23 18:44:25,396 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead05d.png
+2026-07-23 18:44:25,598 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead10d.png
+2026-07-23 18:44:25,796 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead15d.png
+2026-07-23 18:44:25,995 - root - INFO - Saved diagnostic plot: /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/diag_2m_temperature_lead30d.png
 Saving predictions...
 filenmae for start times: 2019-05-13 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_3.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_2.nc
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
@@ -409,58 +385,18 @@ Saving predictions...
 filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_3.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_3.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_3.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_4.nc
 Saving predictions...
 filenmae for start times: 2019-05-09 00:00:00
 _____________________________________________
 Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_4.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_4.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_4.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_2.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_2.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_2.nc
 Saving predictions...
 filenmae for start times: 2019-05-13 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_5.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_5.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_5.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_5.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_6.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_3.nc
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
@@ -469,18 +405,18 @@ Saving predictions...
 filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_6.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_6.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_6.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_7.nc
 Saving predictions...
 filenmae for start times: 2019-05-09 00:00:00
 _____________________________________________
 Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_3.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_3.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_3.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_4.nc
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
@@ -489,18 +425,38 @@ Saving predictions...
 filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_7.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_7.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_7.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_8.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_4.nc
 Saving predictions...
 filenmae for start times: 2019-05-09 00:00:00
 _____________________________________________
 Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_4.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_4.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_5.nc
+Saving predictions...
+filenmae for start times: 2019-05-02 00:00:00
+_____________________________________________
+Saving predictions...
+filenmae for start times: 2019-05-06 00:00:00
+_____________________________________________
+Added all variables to dataset
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_5.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_5.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_5.nc
+Saving predictions...
+filenmae for start times: 2019-05-13 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_6.nc
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
@@ -509,334 +465,59 @@ Saving predictions...
 filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_8.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_8.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_8.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_6.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_6.nc
+Saving predictions...
+filenmae for start times: 2019-05-09 00:00:00
+_____________________________________________
+Added all variables to dataset
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_6.nc
 Saving predictions...
 filenmae for start times: 2019-05-13 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_9.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_7.nc
 Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
+filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_9.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_7.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_7.nc
 Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
+filenmae for start times: 2019-05-09 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_9.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_9.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_7.nc
 Saving predictions...
 filenmae for start times: 2019-05-13 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_10.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_8.nc
 Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
+filenmae for start times: 2019-05-06 00:00:00
 _____________________________________________
 Added all variables to dataset
 Saving predictions...
 filenmae for start times: 2019-05-02 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_10.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_10.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_10.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_11.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050600_ens_8.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050200_ens_8.nc
 Saving predictions...
 filenmae for start times: 2019-05-09 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_11.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_11.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_11.nc
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019050900_ens_8.nc
 Saving predictions...
 filenmae for start times: 2019-05-13 00:00:00
 _____________________________________________
 Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_12.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_12.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_12.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_12.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_13.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_13.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_13.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_13.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_14.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_14.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_14.nc
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_14.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_15.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_15.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_15.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_15.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_16.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_16.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_16.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_16.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_17.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_17.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_17.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_17.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_18.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_18.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_18.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_18.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_19.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_19.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_19.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_19.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_20.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_20.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_20.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_20.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_21.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_21.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_21.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_21.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_22.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_22.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_22.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_22.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_23.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_23.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_23.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_23.nc
-Saving predictions...
-filenmae for start times: 2019-05-13 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019051300_ens_24.nc
-Saving predictions...
-filenmae for start times: 2019-05-09 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050900_ens_24.nc
-Saving predictions...
-filenmae for start times: 2019-05-02 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050200_ens_24.nc
-Saving predictions...
-filenmae for start times: 2019-05-06 00:00:00
-_____________________________________________
-Added all variables to dataset
-Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1/predictions/pangu_plasim_si_c1_24h_45step_2019050600_ens_24.nc
-W0723 01:43:41.608000 2272423 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received 1 death signal, shutting down workers
-W0723 01:43:41.609000 2272423 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 2272501 closing signal SIGHUP
-W0723 01:43:41.609000 2272423 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 2272502 closing signal SIGHUP
-W0723 01:43:41.609000 2272423 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 2272503 closing signal SIGHUP
-W0723 01:43:41.609000 2272423 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 2272504 closing signal SIGHUP
+Done saving to directiory:  /data/bing/S2S/v2.0/HPC_scripts/results/S2S/si_c1_full_state/predictions/pangu_plasim_si_c1_full_state_24h_45step_2019051300_ens_9.nc
+E0723 19:47:24.092000 3992807 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: -15) local_rank: 0 (pid: 3992882) of binary: /home/nvidia/miniforge3/envs/s2s_env/bin/python
 Traceback (most recent call last):
   File "<frozen runpy>", line 198, in _run_module_as_main
   File "<frozen runpy>", line 88, in _run_code
@@ -854,17 +535,41 @@ Traceback (most recent call last):
   File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
     return launch_agent(self._config, self._entrypoint, list(args))
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 260, in launch_agent
-    result = agent.run()
-             ^^^^^^^^^^^
-  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/metrics/api.py", line 137, in wrapper
-    result = f(*args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^
-  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/agent/server/api.py", line 711, in run
-    result = self._invoke_run(role)
-             ^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/agent/server/api.py", line 870, in _invoke_run
-    time.sleep(monitor_interval)
-  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/elastic/multiprocessing/api.py", line 84, in _terminate_process_handler
-    raise SignalException(f"Process {os.getpid()} got signal: {sigval}", sigval=sigval)
-torch.distributed.elastic.multiprocessing.api.SignalException: Process 2272423 got signal: 1
+  File "/home/nvidia/miniforge3/envs/s2s_env/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+=========================================================
+../inference.py FAILED
+---------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-07-23_19:47:24
+  host      : brev-xuybxbcj3
+  rank      : 1 (local_rank: 1)
+  exitcode  : -15 (pid: 3992883)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 3992883
+[2]:
+  time      : 2026-07-23_19:47:24
+  host      : brev-xuybxbcj3
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 3992884)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 3992884
+[3]:
+  time      : 2026-07-23_19:47:24
+  host      : brev-xuybxbcj3
+  rank      : 3 (local_rank: 3)
+  exitcode  : -15 (pid: 3992885)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 3992885
+---------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-07-23_19:47:24
+  host      : brev-xuybxbcj3
+  rank      : 0 (local_rank: 0)
+  exitcode  : -15 (pid: 3992882)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 3992882
+=========================================================

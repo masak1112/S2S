@@ -362,7 +362,7 @@ class Stepper(Trainer):
                     #     ua_scale   = val_input_upper_air.std(dim=(-2, -1), keepdim=True)
                     #     val_input_surface   = val_input_surface   + ic_noise_std * surf_scale * torch.randn_like(val_input_surface)
                     #     val_input_upper_air = val_input_upper_air + ic_noise_std * ua_scale   * torch.randn_like(val_input_upper_air)
-
+                    temperature = 1
                     base_temperature      = getattr(self.params, 'base_temperature',      1.5)
                     temperature_growth   = getattr(self.params, 'temperature_growth',   0.1)
                     step_noise_std       = getattr(self.params, 'step_noise_std',       0.03)
@@ -371,8 +371,10 @@ class Stepper(Trainer):
                     gaussian_latent_std  = getattr(self.params, 'gaussian_latent_std',  1.0)
 
                     for time_step in range(self.params['inference_steps']):
-                        # Approach 1: temperature grows linearly with lead time
-                        temperature = base_temperature * (1.0 + temperature_growth * time_step)
+                        # # Approach 1: temperature grows linearly with lead time
+                        # temperature = base_temperature * (1.0 + temperature_growth * time_step)
+                        # Approach 2: exponential growth — accelerates spread at longer leads
+                        # temperature = base_temperature * math.exp(temperature_growth * time_step)
 
                         val_out_surface, val_out_upper_air, val_out_diagnostic = self.diff_model.prediction(surface_in=val_input_surface, constant_boundary=self.constant_boundary_data,
                                                                     varying_boundary=val_varying_boundary_data[:,time_step],

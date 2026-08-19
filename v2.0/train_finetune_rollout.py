@@ -371,16 +371,19 @@ class RolloutFinetuner(Trainer):
             total_precip_rmse += precip_rmse.item()
             total_loss        += step_loss.item()
 
-            # Advance state: use ensemble mean as the deterministic next IC.
+            # Advance state: pick a random ensemble member as the next IC.
+            # This preserves spread and avoids the mean-collapse that degrades
+            # CRPS at longer lead times when the mean is fed back.
             # Cast to float32 because the encode path (_encode_det, _encode_vae)
             # runs outside autocast and expects float32 inputs.
             with torch.no_grad():
-                pred_sfc_mean = pred_sfc.reshape(
-                    -1, num_samples, *pred_sfc.shape[1:]).mean(dim=1)
-                pred_ua_mean  = pred_ua.reshape(
-                    -1, num_samples, *pred_ua.shape[1:]).mean(dim=1)
-            s_cur  = pred_sfc_mean.detach().float()
-            ua_cur = pred_ua_mean.detach().float()
+                rand_member = torch.randint(0, num_samples, (1,)).item()
+                pred_sfc_sel = pred_sfc.reshape(
+                    -1, num_samples, *pred_sfc.shape[1:])[:, rand_member]
+                pred_ua_sel  = pred_ua.reshape(
+                    -1, num_samples, *pred_ua.shape[1:])[:, rand_member]
+            s_cur  = pred_sfc_sel.detach().float()
+            ua_cur = pred_ua_sel.detach().float()
 
             # Free this step's decoder graph before next step's SI sampling.
             del x_si, x_dec, skip, skip_expanded, output, output_surface, output_upper_air
