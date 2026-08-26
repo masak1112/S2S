@@ -27,6 +27,7 @@ import xarray as xr
 import cf_xarray as cfxr
 from datetime import timedelta
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 from utils.integrate import Integrator, forward_euler
@@ -137,6 +138,21 @@ class Stepper(Trainer):
         if finetune_ckpt and os.path.isfile(finetune_ckpt):
             self.restore_finetune_checkpoint(finetune_ckpt)
             print(f"Fine-tuned decoder loaded from {finetune_ckpt}")
+
+        # Background writer: overlaps NetCDF serialization with GPU rollout of the
+        # next ensemble member. Saves are submitted per (batch, ens_id) and drained
+        # at the end of validate_one_epoch.
+        self._save_executor = ThreadPoolExecutor(max_workers=2) if self.async_save else None
+        self._pending_saves = []
+        # HDF5/netCDF4 is not thread-safe in this environment: concurrent to_netcdf()
+        # calls segfault the process. Dataset construction still overlaps with GPU
+        # work; only the actual file write is serialized behind this lock.
+        self._netcdf_write_lock = threading.Lock()
+        # Pinned CPU staging buffers for async D2H copies; lazily allocated on
+        # first use and reused across ensemble members.
+        self._surf_cpu = None
+        self._upper_cpu = None
+        self._diag_cpu = None
 
     def restore_diff_checkpoint(self, checkpoint_path_diff):
         """ We intentionally require a checkpoint_dir to be passed
@@ -311,7 +327,9 @@ class Stepper(Trainer):
     def predict(self):
         if self.params.log_to_screen:
             logging.info("Starting Model Inference Loop...")
-        valid_time, valid_logs = self.validate_one_epoch()
+        valid_time = self.validate_one_epoch()
+        if self.world_rank == 0:
+            logging.info("Validation loop wall time (seconds): %.3f", valid_time)
 
 
     def validate_one_epoch(self):
@@ -328,31 +346,24 @@ class Stepper(Trainer):
 
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for batch_idx, data in enumerate(self.valid_data_loader, 0):
+                # Host->device once per batch (not once per member): the 50 ensemble
+                # members all start from the same IC, so re-uploading it 50x was pure
+                # overhead. Each member clones the GPU copy instead.
+                val_input_surface_batch, val_input_upper_air_batch, _, _, _, val_varying_boundary_data_batch, times = map(
+                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+
+                # Single D2H for the timestamps, then build start_times once per batch.
+                times_np = times.cpu().numpy().astype(int)
+                start_times = [
+                    self.valid_dataset.datetime_class(
+                        times_np[i, 0], times_np[i, 1], times_np[i, 2], hour=times_np[i, 3])
+                    for i in range(times_np.shape[0])
+                ]
+
                 for ens_id in list(range(0, 50)):
-                    val_input_surface, val_input_upper_air, _, _, _, val_varying_boundary_data, times = map(
-                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-
-                    start_times = []
-                    for i in range(times.shape[0]):  # Iterate over all samples in the batch
-                        start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
-                        start_times.append(start_time)
-
-
-                    val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                    val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                    dtype = np.float32)
-                    val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
-                                                    val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                                        val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                    dtype = np.float32)
-                    if self.params.has_diagnostic:
-                        val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                        self.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                        dtype = np.float32)
-
-                    val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                    val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
-
+                    val_input_surface = val_input_surface_batch.clone()
+                    val_input_upper_air = val_input_upper_air_batch.clone()
+                    val_varying_boundary_data = val_varying_boundary_data_batch
 
                     ic_noise_std = getattr(self.params, 'ic_noise_std', 0.2)
 
@@ -369,6 +380,20 @@ class Stepper(Trainer):
                     noise_growth_exp     = getattr(self.params, 'noise_growth_exp',     0.5)
                     use_gaussian_latent  = getattr(self.params, 'use_gaussian_latent',  False)
                     gaussian_latent_std  = getattr(self.params, 'gaussian_latent_std',  1.0)
+
+                    # Keep the whole rollout on-GPU and do a single bulk D2H after the
+                    # loop, instead of 3 device->host copies per step. Index 0 is the IC.
+                    _surf_steps_gpu = [val_input_surface.detach()]
+                    _upper_steps_gpu = [val_input_upper_air.detach()]
+                    _diag_steps_gpu = []
+                    if self.params.has_diagnostic:
+                        # t=0 has no diagnostic output. Placeholder only, so indices line up
+                        # with the surface/upper-air arrays; it is re-zeroed AFTER the inverse
+                        # transform below (inv_transform(0) == mean, not 0).
+                        _diag_steps_gpu.append(torch.zeros(
+                            (val_input_surface.shape[0], self.num_diagnostic_vars,
+                             val_input_surface.shape[2], val_input_surface.shape[3]),
+                            dtype=torch.float32, device=self.device))
 
                     for time_step in range(self.params['inference_steps']):
                         # # Approach 1: temperature grows linearly with lead time
@@ -399,22 +424,83 @@ class Stepper(Trainer):
                         #         diag_scale = val_out_diagnostic.std(dim=(-2, -1), keepdim=True).clamp(min=1e-6)
                         #         val_out_diagnostic = val_out_diagnostic + noise_scale * diag_scale * torch.randn_like(val_out_diagnostic)
 
-                        diag_phys = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
+                        # Stay on GPU: inverse-transform and clamping are applied in bulk
+                        # after the rollout completes.
+                        if self.params.has_diagnostic:
+                            _diag_steps_gpu.append(val_out_diagnostic.detach())
+                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
+
+                        _surf_steps_gpu.append(val_out_surface.detach())
+                        _upper_steps_gpu.append(val_out_upper_air.detach())
+
+                    # ---- Bulk GPU -> CPU transfer (one sync point per member) ----
+                    _surf_gpu = torch.stack(_surf_steps_gpu, dim=1)    # (B, T, V, H, W)
+                    _upper_gpu = torch.stack(_upper_steps_gpu, dim=1)  # (B, T, V, L, H, W)
+                    B, T = _surf_gpu.shape[:2]
+
+                    # inv_transform expects a leading batch dim, so fold time into it.
+                    surf_phys = self.valid_dataset.surface_inv_transform(
+                        _surf_gpu.reshape(B * T, *_surf_gpu.shape[2:]))
+                    upper_phys = self.valid_dataset.upper_air_inv_transform(
+                        _upper_gpu.reshape(B * T, *_upper_gpu.shape[2:]))
+
+                    diag_phys = None
+                    if self.params.has_diagnostic:
+                        _diag_gpu = torch.stack(_diag_steps_gpu, dim=1)
+                        diag_phys = self.valid_dataset.diagnostic_inv_transform(
+                            _diag_gpu.reshape(B * T, *_diag_gpu.shape[2:]))
                         # Clamp non-negative diagnostic variables (precipitation) to zero.
+                        # Done on GPU over all timesteps at once; the t=0 zero slot is
+                        # unaffected since inv_transform of 0 is clamped the same as before.
                         nonneg_vars = {'total_precipitation_24hr', 'total_precipitation_6hr',
                                        'mean_top_net_long_wave_radiation_flux'}
                         for vi, vname in enumerate(self.valid_dataset.diagnostic_variables):
                             if vname in nonneg_vars:
-                                diag_phys[:, vi] = np.clip(diag_phys[:, vi], 0.0, None)
-                        val_output_diagnostic[:, time_step + 1] = diag_phys
-                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
+                                diag_phys[:, vi].clamp_(min=0.0)
+                        # Restore the t=0 slot to literal zeros. inv_transform maps the
+                        # normalized-zero placeholder to `mean`, but the previous code left
+                        # index 0 untouched at 0.0 — keep the saved files identical.
+                        diag_phys = diag_phys.reshape(B, T, *diag_phys.shape[1:])
+                        diag_phys[:, 0].zero_()
+                        diag_phys = diag_phys.reshape(B * T, *diag_phys.shape[2:])
 
-                        val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
-                        val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+                    # Lazily allocate pinned staging buffers so each D2H is async and
+                    # cudaHostAlloc happens once, not once per ensemble member.
+                    if self._surf_cpu is None or self._surf_cpu.shape != surf_phys.shape:
+                        self._surf_cpu = torch.empty(surf_phys.shape, dtype=torch.float32, pin_memory=True)
+                    if self._upper_cpu is None or self._upper_cpu.shape != upper_phys.shape:
+                        self._upper_cpu = torch.empty(upper_phys.shape, dtype=torch.float32, pin_memory=True)
+                    self._surf_cpu.copy_(surf_phys, non_blocking=True)
+                    self._upper_cpu.copy_(upper_phys, non_blocking=True)
+                    if diag_phys is not None:
+                        if self._diag_cpu is None or self._diag_cpu.shape != diag_phys.shape:
+                            self._diag_cpu = torch.empty(diag_phys.shape, dtype=torch.float32, pin_memory=True)
+                        self._diag_cpu.copy_(diag_phys, non_blocking=True)
 
-                    self.save_prediction(val_output_surface, val_output_upper_air, start_times,
-                                         diagnostic_prediction=val_output_diagnostic if self.params.has_diagnostic else None,
-                                         ens_id=ens_id)
+                    # Single sync covering every copy queued above.
+                    torch.cuda.synchronize()
+
+                    # .copy() detaches from the pinned buffers so they can be reused for
+                    # the next member while the save thread still holds these arrays.
+                    val_output_surface = self._surf_cpu.numpy().reshape(B, T, *_surf_gpu.shape[2:]).copy()
+                    val_output_upper_air = self._upper_cpu.numpy().reshape(B, T, *_upper_gpu.shape[2:]).copy()
+                    val_output_diagnostic = (
+                        self._diag_cpu.numpy().reshape(B, T, *_diag_gpu.shape[2:]).copy()
+                        if diag_phys is not None else None
+                    )
+
+                    # val_output_* are freshly allocated per ens_id, so the worker thread
+                    # owns them outright — no buffer reuse race with the next member.
+                    _diag_out = val_output_diagnostic
+                    if self._save_executor is not None:
+                        self._pending_saves.append(self._save_executor.submit(
+                            self.save_prediction,
+                            val_output_surface, val_output_upper_air, list(start_times),
+                            _diag_out, ens_id))
+                    else:
+                        self.save_prediction(val_output_surface, val_output_upper_air, start_times,
+                                             diagnostic_prediction=_diag_out,
+                                             ens_id=ens_id)
 
                     # Track spread across members for the first sample of batch 0.
                     if batch_idx == 0:
@@ -448,6 +534,19 @@ class Stepper(Trainer):
                         std_per_var = ens_array[:, step].std(axis=0).mean(axis=(-2, -1))  # (vars,)
                         print(f"  {step:>5}  " + "  ".join(f"{s:>12.4f}" for s in std_per_var))
                     print()
+
+        # Block until every queued save has landed on disk. .result() re-raises any
+        # exception from the worker thread, which would otherwise be swallowed.
+        if self._pending_saves:
+            logging.info('Waiting for %d background save(s) to finish...', len(self._pending_saves))
+            _save_wait_start = time.time()
+            for f in self._pending_saves:
+                f.result()
+            self._pending_saves.clear()
+            logging.info('Background saves drained in %.2fs', time.time() - _save_wait_start)
+        if self._save_executor is not None:
+            self._save_executor.shutdown(wait=True)
+            self._save_executor = None
 
         total_time = time.time() - total_start
         return total_time
@@ -528,9 +627,11 @@ class Stepper(Trainer):
                 dataset["longitude"] = dataset["longitude"].astype('float32').assign_attrs({'long_name': 'Longitude', 'unit': 'degrees_east'})  
                 dataset["time"] = dataset["time"].assign_attrs({'long_name': "Forecast Valid Time"}) 
                 dataset["level"] = dataset["level"].astype('float32').assign_attrs({'long_name': 'Level', 'unit': 'hPa'})        
-                dataset = dataset.chunk({'time': 1, "level": 1})
                 #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
-                dataset.to_netcdf(os.path.join(savedir, filename), 'w')
+                # Serialized: concurrent HDF5 writes segfault (h5netcdf is unavailable
+                # in this env, so the netCDF4 engine is the only option).
+                with self._netcdf_write_lock:
+                    dataset.to_netcdf(os.path.join(savedir, filename), 'w')
                 print('Done saving to directiory: ', os.path.join(savedir, filename))
             else:
                 print(f"Skipping saving for start time {start_times[sample]} since it's not 00UTC")
@@ -549,7 +650,10 @@ if __name__ == '__main__':
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
-    parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
+    # Defaults ON (matches the async-save branch), but stays switchable via
+    # --no-async_save; `default=True` with store_true would pin it on permanently.
+    parser.add_argument("--async_save", default=True, action=argparse.BooleanOptionalAction,
+                        help="Enable asynchronous (background-thread) saving")
     parser.add_argument("--local-rank", type=int)
     parser.add_argument("--finetune_ckpt", default=None, type=str,
                         help="Path to CRPS fine-tuned decoder checkpoint; overrides decoder weights after normal loading")

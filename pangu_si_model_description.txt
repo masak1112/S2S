@@ -1,0 +1,405 @@
+================================================================================
+  PANGU + STOCHASTIC INTERPOLANT (SI) MODEL
+  Mathematical Description and Problem Formulation
+================================================================================
+
+  Project: Subseasonal-to-Seasonal (S2S) Probabilistic Weather Forecasting
+  Code:    /data/bing/S2S/v2.0/
+  Date:    July 2026
+
+================================================================================
+1. PROBLEM STATEMENT
+================================================================================
+
+Goal: Learn a probabilistic forecast model for atmospheric state at the
+subseasonal-to-seasonal (S2S) timescale (forecast lead times 1--45 days),
+conditioned on the current atmospheric state.
+
+Let x_t denote the full atmospheric state at time t, comprising:
+
+  - Surface fields (2-D):
+      s_t in R^{C_s x H x W},   C_s = 5 variables
+      (T2m, U10, V10, MSLP, SP)
+
+  - Upper-air fields (3-D):
+      a_t in R^{C_a x L x H x W},   C_a = 5 variables, L = 17 pressure levels
+      (T, U, V, Q, Z)
+
+  Grid: H = 180 latitude points, W = 360 longitude points (1-degree resolution)
+
+  - Boundary / forcing fields (time-varying and constant):
+      b_t in R^{C_b x H x W}
+      (land-sea mask, surface geopotential, TOA solar radiation)
+
+The combined input at time t is denoted:
+
+  u_t = (s_t, a_t, b_t)
+
+The task is to learn:
+
+  p(x_{t+tau} | u_t),   tau in {1, 2, 10, 15, 45} days
+
+in a way that is both accurate (low RMSE vs. reanalysis) and well-calibrated
+(ensemble spread matches actual forecast error). Training data are ERA5 reanalysis
+fields for 1979--2018, stored as 6-hourly snapshots and rolled to 24-hour steps.
+
+================================================================================
+2. TWO-STAGE MODEL ARCHITECTURE
+================================================================================
+
+The model has two coupled components:
+
+  (A) Pangu: a deterministic Swin-Transformer encoder-decoder that produces a
+      smoothed, conditional-mean prediction of the next 24-hour state.
+
+  (B) Stochastic Interpolant (SI) + VAE: a generative model that learns the
+      distribution of residuals (what Pangu's mean prediction misses) in the
+      latent space of the Pangu encoder, enabling probabilistic ensemble
+      forecasting.
+
+The key insight of the current (residual) formulation is that the SI is not
+asked to reconstruct Pangu's output from scratch; it is asked to sample the
+distribution of x_true - x_Pangu in latent space, which is then added back
+before the shared decoder runs.
+
+================================================================================
+3. COMPONENT A -- PANGU DETERMINISTIC ENCODER-DECODER
+================================================================================
+
+3.1 Patch Embedding
+-------------------
+The 2-D surface fields and 3-D upper-air fields are tokenized independently:
+
+  PatchEmbed2D:  s_t -> S in R^{B x (H'*W') x D},  D = 240 (embed_dim)
+  PatchEmbed3D:  a_t -> A in R^{B x (L' x H' x W') x D}
+
+with patch size (p_z, p_lat, p_lon) = (2, 4, 4) [default config], so
+
+  H' = H / p_lat,  W' = W / p_lon,  L' = L / p_z
+
+Tokens are concatenated along the vertical dimension:
+
+  X = concat([A, S.unsqueeze(2)], dim=2)  in R^{B x D x (L'+1) x H' x W'}
+
+3.2 Swin-3D Encoder (4 stages, depths = [2, 6, 6, 2])
+------------------------------------------------------
+The encoder applies alternating (regular + shifted) 3-D Window-based Multi-head
+Self-Attention (W-MSA / SW-MSA) blocks with Earth-position biases:
+
+  Stage 1: X -> Z_1  (no downsampling, 2 Swin blocks)
+  Stage 2: Z_1 -> Z_2  (patch merging 2x, 6 blocks)
+  Stage 3: Z_2 -> Z_3  (patch merging 2x, 6 blocks)
+
+This produces the Pangu encoder latent:
+
+  x = Pangu_Encoder(u_t)  in R^{B x C_lat x H_lat x W_lat}
+
+where C_lat, H_lat, W_lat are determined by the patch size and downsampling
+factor (updown_scale_factor = 2).
+
+3.3 Swin-3D Decoder
+-------------------
+A symmetric upsampling decoder with skip connections reconstructs predictions:
+
+  x_out = Pangu_Decoder(x, skip)
+
+and patch-recovery heads project back to physical space:
+
+  PatchRecovery2D: R^{...} -> s_{t+1} in R^{B x C_s x H x W}
+  PatchRecovery3D: R^{...} -> a_{t+1} in R^{B x C_a x L x H x W}
+
+The full deterministic mapping (frozen during SI training) is:
+
+  (s_{t+1}^{det}, a_{t+1}^{det}) = Pangu(u_t;  theta_det)
+
+3.4 Encoder as a Function (used in SI training)
+-----------------------------------------------
+Define the frozen encoder function:
+
+  E_det(u) := Pangu_Encoder(u;  theta_det)       (no gradient)
+
+so that:
+
+  x = E_det(u_t)          -- Pangu's latent prediction for t+1
+  x_true = E_det(u_{t+1}) -- Ground-truth t+1 latent
+
+================================================================================
+4. COMPONENT B -- VARIATIONAL AUTOENCODER (VAE) CONDITIONING
+================================================================================
+
+A small VAE is trained separately to compress a single surface field (e.g. T2m)
+into a low-dimensional stochastic condition z. During SI training the VAE
+encoder is also frozen.
+
+4.1 VAE Encoder
+---------------
+  mu_phi, logvar_phi = VAE_Encoder(s_t;  phi)
+
+  z ~ N(mu_phi, exp(logvar_phi) * I)      (reparameterization trick)
+
+  z in R^{B x C_z x H_z x W_z},   C_z = 2 (z_channels)
+
+The VAE is trained with the ELBO:
+
+  L_VAE = -E_q[log p(s_t | z)] + KL[q(z | s_t) || N(0, I)]
+
+4.2 Role of z
+-------------
+z acts as the conditioning signal to the SI's UNet. It encodes low-frequency,
+slowly-varying surface information (e.g. SST anomalies, soil moisture) that is
+relevant for S2S predictability beyond what Pangu's deterministic latent
+captures.
+
+================================================================================
+5. COMPONENT C -- STOCHASTIC INTERPOLANT (SI)
+================================================================================
+
+5.1 Conceptual Framework
+------------------------
+The Stochastic Interpolant (Albergo & Vanden-Eijnden, 2022) defines a
+probability-flow between a source distribution p_0 and a target distribution
+p_1 via a continuous-time interpolant:
+
+  I(t) = alpha(t) * x_0  +  beta(t) * x_1  +  gamma(t) * eps
+
+where:
+  x_0 ~ p_0   (source, e.g. standard Gaussian)
+  x_1 ~ p_1   (target distribution)
+  eps ~ N(0, I)
+  t in [0, 1]
+
+In the current residual formulation:
+
+  p_0 = N(0, I)
+  p_1 = distribution of  r := x_true - x  =  E_det(u_{t+1}) - E_det(u_t)
+
+That is, the SI targets the residual (what Pangu's mean-latent misses), not the
+full Pangu latent x.
+
+5.2 Interpolation Schedules
+---------------------------
+Linear path (gamma_type = 'zero' in current config):
+
+  alpha(t) = 1 - t,    alpha_dot(t) = -1
+  beta(t)  = t,        beta_dot(t)  =  1
+  gamma(t) = 0         (deterministic interpolant, no midpoint noise)
+
+So:
+
+  I(t) = (1-t) * x_0  +  t * r
+
+  dI/dt = -x_0  +  r
+
+5.3 UNet (Drift Network)
+------------------------
+A conditional UNet f_theta learns the velocity (drift) field:
+
+  f_theta : (I(t), z, t) -> v_theta  in R^{B x C_lat x H_lat x W_lat}
+
+Architecture: ConUNet_1degV2 with:
+  - Sinusoidal time embeddings (dim = 4 * base_channels)
+  - ResNet blocks with GroupNorm and SiLU activations
+  - Cross-attention fusion of conditioning z at the bottleneck and input layer
+  - Multi-scale encoder--decoder with max-pool downsampling and bilinear upsampling
+  - Skip connections (U-Net style)
+
+5.4 Training Objective
+----------------------
+For each training pair (u_t, u_{t+1}):
+
+  Step 1. Encode Pangu latents (frozen, no gradient):
+            x = E_det(u_t)
+            x_true = E_det(u_{t+1})
+
+  Step 2. Compute residual target:
+            r = x_true - x
+
+  Step 3. Encode VAE condition (frozen, no gradient):
+            z = VAE_Encoder(s_t)
+
+  Step 4. Sample interpolant at random time t ~ Uniform(epsilon, 1-epsilon):
+            x_0 ~ N(0, I)   (same shape as r)
+            I_t  = (1-t) * x_0  +  t * r
+            dI/dt = -x_0  +  r
+
+  Step 5. Anti-thetic interpolant perturbation (for variance reduction):
+            eps ~ N(0, I)
+            I_t^+ = I_t + gamma(t) * eps
+            I_t^- = I_t - gamma(t) * eps
+
+            target^+ = dI/dt - eps * gamma_dot(t)
+            target^- = dI/dt + eps * gamma_dot(t)
+
+  Step 6. UNet predictions and loss:
+            v^+ = f_theta(I_t^+, z, t)
+            v^- = f_theta(I_t^-, z, t)
+
+            L_SI = E_t [ ||v^+ - target^+||^2  +  ||v^- - target^-||^2 ]
+
+where ||.|| is the mean-squared norm over spatial dimensions:
+
+  ||A||^2 = (1/(C*H*W)) * sum_{c,h,w} A_{c,h,w}^2
+
+The total training loss for the SI is:
+
+  L_total = L_SI
+
+(The VAE and Pangu losses are minimized separately in prior training stages.)
+
+5.5 Sampling (Inference)
+------------------------
+Given a new initial state u_t:
+
+  Step 1. Compute Pangu latent:
+            x = E_det(u_t)
+
+  Step 2. Encode conditioning:
+            z = VAE_Encoder(s_t)
+
+  Step 3. Sample residual via numerical integration of the SI ODE/SDE:
+            x_0 ~ N(0, I)   (shape = x.shape)
+
+            for t in linspace(0, 1, T=15):
+              v  = f_theta(x_0, z, t)         -- UNet drift
+              x_0 = x_0 + dt * v              -- Euler step (+ noise if gamma > 0)
+
+            r_sample = x_0                    -- sampled residual
+
+  Step 4. Reconstruct full latent:
+            x_sampled = x + r_sample          -- add Pangu's mean + sampled correction
+
+  Step 5. Decode to physical space (frozen Pangu decoder):
+            (s_{t+1}, a_{t+1}) = Pangu_Decoder(x_sampled, skip)
+
+  Step 6. Repeat steps 3--5 with different random seeds for N_ens ensemble members.
+
+The result is an ensemble of atmospheric state predictions:
+
+  { (s_{t+1}^{(i)}, a_{t+1}^{(i)}) }_{i=1}^{N_ens}
+
+from which probabilistic quantities (spread, CRPS, percentiles) can be computed.
+
+================================================================================
+6. AUTOREGRESSIVE ROLLOUT
+================================================================================
+
+For forecasting beyond 24 hours, the model is applied autoregressively.
+Let Phi denote one full forward pass of the model (steps 1--5 above). Then:
+
+  x_{t+n} = Phi(x_{t+n-1}),   n = 1, 2, ..., N_steps
+
+where N_steps can be up to 45 (for 45-day forecasts at 24-hour time steps).
+
+At each step, boundary conditions b_{t+n} (e.g. TOA solar radiation) are
+updated to match the correct calendar time, while the atmospheric state is
+carried forward from the model output.
+
+================================================================================
+7. TRAINING DATA AND NORMALIZATION
+================================================================================
+
+  Dataset:   ERA5 global reanalysis, 1979--2018
+  Format:    HDF5 files, one per 6-hour snapshot
+  Variables:
+    Upper-air (17 pressure levels): T, U, V, Q, Z
+    Surface (5 prognostic):         T2m, U10, V10, MSLP, SP
+    Surface (2 diagnostic):         TP24hr, TNLWRF
+    Land (3):                       vol. soil water, soil temp., skin temp.
+    Ocean (1):                      sea surface temperature (SST)
+    Boundary (3):                   land-sea mask, Zs, TISR
+
+Normalization: Each variable field is standardized using per-variable
+climatological mean mu_c and standard deviation sigma_c computed over
+1979--2018:
+
+  x_normalized = (x - mu_c) / sigma_c
+
+Latitude weighting: Training and evaluation losses use cosine-latitude weights
+
+  w(phi) = N_lat * cos(phi) / sum_{phi'} cos(phi')
+
+to account for the convergence of meridians toward the poles.
+
+================================================================================
+8. LOSS FUNCTIONS SUMMARY
+================================================================================
+
+  (a) Pangu deterministic training (Stage 1, frozen for SI):
+        L_det = (1/N) sum_i w(phi_i) * |s_{t+1}^{det} - s_{t+1}^{ERA5}|_1
+                + (1/N) sum_i w(phi_i) * |a_{t+1}^{det} - a_{t+1}^{ERA5}|_1
+                                 (latitude-weighted L1 loss)
+
+  (b) VAE training (Stage 2, frozen for SI):
+        L_VAE = Reconstruction loss + lambda_KL * KL[q(z|s) || N(0,I)]
+        lambda_KL = 0.01
+
+  (c) SI training (Stage 3, current stage):
+        L_SI = E_t [ ||f_theta(I_t^+, z, t) - target^+||^2
+                   + ||f_theta(I_t^-, z, t) - target^-||^2 ]
+
+  (d) Evaluation metric (post-hoc, not used in training):
+        CRPS = E_m[|y_m - y_true|] - (1/2) * E_{m,m'}[|y_m - y_{m'}|]
+        (latitude-weighted; lower is better)
+
+================================================================================
+9. KEY MODEL HYPERPARAMETERS
+================================================================================
+
+  Pangu Swin Transformer:
+    embed_dim          = 240
+    depths             = [2, 6, 6, 2]
+    num_heads          = (6, 12, 12, 6)
+    window_size        = (2, 6, 10) [pressure, lat, lon]
+    patch_size         = (2, 4, 4)
+    updown_scale_factor = 2
+
+  VAE:
+    z_channels         = 2
+    component          = 8  (number of VAE components / channels)
+
+  SI UNet (ConUNet_1degV2):
+    base_channels      = 2
+    channel_multipliers = (1, 2, 4, 8)
+    resnet_groups      = 4
+    dropout            = 0.1
+    SI path            = 'linear'
+    gamma_type         = 'zero'  (deterministic interpolant)
+    num_refinement_steps (T) = 15
+
+  Training:
+    optimizer          = Adam
+    learning_rate      = 1e-4
+    weight_decay       = 3e-6
+    scheduler          = CosineAnnealingLR
+    batch_size         = 4
+    max_epochs         = 200
+    data_timedelta     = 6 hours (source)  -> 24 hours (effective step)
+    train_years        = 1979--2018
+
+================================================================================
+10. NOTATION SUMMARY
+================================================================================
+
+  u_t                  Full atmospheric input at time t
+  s_t                  Surface fields in R^{C_s x H x W}
+  a_t                  Upper-air fields in R^{C_a x L x H x W}
+  b_t                  Boundary/forcing fields
+  x = E_det(u_t)       Pangu encoder latent (mean prediction for t+1)
+  x_true = E_det(u_{t+1})  Ground-truth t+1 latent (same space)
+  r = x_true - x       Residual: what Pangu's mean-latent misses
+  z                    VAE stochastic condition (slow surface modes)
+  I(t)                 Stochastic interpolant between N(0,I) and p(r|u_t)
+  f_theta              SI UNet drift network (ConUNet_1degV2)
+  v = f_theta(I_t,z,t) Predicted velocity (drift) of the interpolant
+  r_sample             SI-sampled residual for one ensemble member
+  x_sampled = x + r_sample  Full latent for one ensemble member
+  (s_{t+1}, a_{t+1})  Decoded ensemble member output
+  N_ens                Number of ensemble members (default: 5 in inference)
+  T                    Number of SI integration steps (default: 15)
+  H, W                 Grid dimensions (180 x 360 for 1-degree ERA5)
+  L                    Number of pressure levels (17)
+  phi                  Geographic latitude
+
+================================================================================
+END OF DOCUMENT
+================================================================================

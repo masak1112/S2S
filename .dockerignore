@@ -1,0 +1,18 @@
+# Keep the build context small: checkpoints alone are ~1GB.
+.git
+.gitignore
+checkpoints/
+data/
+**/__pycache__/
+**/*.pyc
+**/wandb/
+**/logs/
+**/results/
+**/*.out
+**/*.log
+**/gif_out/
+**/spectra_out/
+**/acc_plots/
+*.png
+*.tex
+si_full_diagram.png

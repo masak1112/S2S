@@ -1,0 +1,683 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{microtype}
+
+\title{Pangu + Stochastic Interpolant (SI) Model:\\
+       Mathematical Description and Problem Formulation}
+\author{S2S Probabilistic Weather Forecasting Project}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ---------------------------------------------------------------------------
+\section{Problem Setup}
+% ---------------------------------------------------------------------------
+
+\subsection{Mathematical Symbols}
+
+The following notation is used throughout this document.
+
+\begin{itemize}
+  \item $\hat{\mathbf{x}}_{t+\tau}$\;: predicted states at lead time $\tau$.
+  \item $\mathbf{x}_t$\;: input states at the initial timestamp $t$.
+  \item $\mathbf{y}$\;: the ground truth (ERA5 reanalysis).
+  \item $\tau$\;: the lead time (forecast horizon).
+  \item $t$\;: the initial timestamp (physical calendar time).
+  \item $ts$\;: the diffusion / SI sampling timestamp, $ts \in [0,1]$.
+  \item $i,\,j,\,v$\;: latitude, longitude, and vertical level indices.
+  \item $w_{i,j}$\;: latitude weights at grid point $(i,j)$.
+  \item $\mathbf{F}^1_\theta,\;\mathbf{F}^2_\theta$\;: data-driven models with
+        shared parameter set $\theta$.
+        $\mathbf{F}^1_\theta$ is the deterministic Pangu AI model;
+        $\mathbf{F}^2_\theta$ is the stochastic SI correction model.
+  \item $c$\;: the conditional information component (four components: surface
+        fields, boundary conditions, VAE latent, and the Pangu encoder latent).
+\end{itemize}
+
+\subsection{Problem Formulation}
+
+The goal is to learn a probabilistic forecast of the atmospheric state at the
+subseasonal-to-seasonal (S2S) timescale, conditioned on the current observed
+state $\mathbf{x}_t$.
+
+The full input state at time $t$ comprises three groups of fields, summarised
+in Table~\ref{tab:variables}.
+
+\begin{table}[h]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{llllp{4.2cm}}
+\toprule
+\textbf{Group} & \textbf{Symbol} & \textbf{Short name} & \textbf{ERA5 variable name} & \textbf{Notes} \\
+\midrule
+\multirow{5}{*}{\shortstack[l]{Surface fields\\(2-D)\\$\mathbf{x}_t^s$\\$C_s=5$}}
+  & T2m  & 2\,m temperature                        & \texttt{2m\_temperature}                   & prognostic \\
+  & U10  & 10\,m zonal wind                        & \texttt{10m\_u\_component\_of\_wind}       & prognostic \\
+  & V10  & 10\,m meridional wind                   & \texttt{10m\_v\_component\_of\_wind}       & prognostic \\
+  & MSLP & Mean sea-level pressure                 & \texttt{mean\_sea\_level\_pressure}        & prognostic \\
+  & SP   & Surface pressure                        & \texttt{surface\_pressure}                 & prognostic \\
+\midrule
+\multirow{5}{*}{\shortstack[l]{Upper-air fields\\(3-D, 17 levels)\\$\mathbf{x}_t^a$\\$C_a=5$, $L=17$}}
+  & T    & Temperature                             & \texttt{temperature}                       & all levels \\
+  & U    & Zonal wind                              & \texttt{u\_component\_of\_wind}            & all levels \\
+  & V    & Meridional wind                         & \texttt{v\_component\_of\_wind}            & all levels \\
+  & Q    & Specific humidity                       & \texttt{specific\_humidity}                & all levels \\
+  & Z    & Geopotential                            & \texttt{geopotential}                      & all levels \\
+\midrule
+\multirow{5}{*}{\shortstack[l]{Boundary /\\forcing fields\\(2-D)\\$\mathbf{x}_t^b$}}
+  & LSM  & Land-sea mask                           & \texttt{land\_sea\_mask}                   & constant \\
+  & Zs   & Surface geopotential                    & \texttt{geopotential\_at\_surface}         & constant \\
+  & TISR & TOA incident solar radiation            & \texttt{toa\_incident\_solar\_radiation}   & time-varying \\
+  & SWL1 & Volumetric soil water (layer 1)         & \texttt{volumetric\_soil\_water\_layer\_1} & land, masked \\
+  & STL1 & Soil temperature (level 1)              & \texttt{soil\_temperature\_level\_1}       & land, masked \\
+\midrule
+\multirow{4}{*}{\shortstack[l]{Auxiliary /\\diagnostic\\(not prognostic)}}
+  & SKT  & Skin temperature                        & \texttt{skin\_temperature}                 & land \\
+  & SST  & Sea surface temperature                 & \texttt{sea\_surface\_temperature}         & ocean, masked \\
+  & TP   & 24-hr total precipitation               & \texttt{total\_precipitation\_24hr}        & diagnostic output \\
+  & TNLWRF & Top net long-wave radiation flux      & \texttt{mean\_top\_net\_long\_wave\_radiation\_flux} & diagnostic output \\
+\midrule
+\multicolumn{5}{l}{\textit{Pressure levels ($L=17$, hPa):
+  5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000}} \\
+\multicolumn{5}{l}{\textit{Grid: $H=180$ latitude $\times$ $W=360$ longitude at $1^\circ$ resolution.}} \\
+\bottomrule
+\end{tabular}
+\caption{All variables used in the Pangu+SI model, grouped by role.
+         ``Prognostic'' variables are predicted autoregressively;
+         ``diagnostic'' variables are output-only;
+         boundary fields are prescribed from observations or climatology.}
+\label{tab:variables}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Surface fields} (2-D):\;
+        $\mathbf{x}_t^s \in \mathbb{R}^{C_s \times H \times W}$,\quad
+        $C_s = 5$ variables: T2m, U10, V10, MSLP, SP.
+
+  \item \textbf{Upper-air fields} (3-D):\;
+        $\mathbf{x}_t^a \in \mathbb{R}^{C_a \times L \times H \times W}$,\quad
+        $C_a = 5$ variables (T, U, V, Q, Z) at $L = 17$ pressure levels.
+
+  \item \textbf{Boundary / forcing fields}:\;
+        $\mathbf{x}_t^b \in \mathbb{R}^{C_b \times H \times W}$
+        (land-sea mask, surface geopotential, TOA solar radiation).
+\end{itemize}
+
+The global grid has $H = 180$ latitude points and $W = 360$ longitude points
+at $1^\circ$ resolution.  The combined input is
+\begin{equation}
+  \mathbf{x}_t = \bigl(\mathbf{x}_t^s,\; \mathbf{x}_t^a,\; \mathbf{x}_t^b\bigr).
+\end{equation}
+
+The forecasting task is to learn the conditional distribution
+\begin{equation}
+  p\!\left(\hat{\mathbf{x}}_{t+\tau} \mid \mathbf{x}_t\right),
+  \qquad \tau \in \{1,\,2,\,10,\,15,\,45\}\text{ days},
+\end{equation}
+such that predictions are both accurate ($\hat{\mathbf{x}}_{t+\tau}$ close to
+$\mathbf{y}_{t+\tau}$ in RMSE) and well-calibrated (ensemble spread matches
+actual forecast uncertainty). Training data are ERA5 reanalysis fields for
+1979--2018, stored as 6-hourly snapshots and subsampled to 24-hour time steps.
+
+% ---------------------------------------------------------------------------
+\section{Two-Stage Model Architecture}
+% ---------------------------------------------------------------------------
+
+The model couples two data-driven components, both parameterised by $\theta$:
+
+\begin{enumerate}
+  \item[\textbf{(A)}] $\mathbf{F}^1_\theta$ -- \textbf{Pangu}: a deterministic
+        Swin-Transformer encoder-decoder that produces a smoothed,
+        conditional-mean prediction of the next 24-hour state:
+        \begin{equation}
+          \hat{\mathbf{x}}_{t+1}^{\mathrm{det}}
+          = \mathbf{F}^1_\theta(\mathbf{x}_t,\,c).
+        \end{equation}
+
+  \item[\textbf{(B)}] $\mathbf{F}^2_\theta$ -- \textbf{SI + VAE}: a generative
+        model that learns the distribution of the \emph{residual} (what
+        $\mathbf{F}^1_\theta$ misses) in the Pangu encoder's latent space,
+        enabling probabilistic ensemble forecasting.
+\end{enumerate}
+
+The key insight of the residual formulation is that $\mathbf{F}^2_\theta$ does
+not reconstruct the output from scratch; instead it samples
+$p(\mathbf{y}_{t+1} - \hat{\mathbf{x}}_{t+1}^{\mathrm{det}} \mid c)$
+in latent space, which is added back before the shared decoder runs.
+
+% ---------------------------------------------------------------------------
+\section{Component $\mathbf{F}^1_\theta$ -- Pangu Deterministic Encoder-Decoder}
+\label{sec:pangu}
+% ---------------------------------------------------------------------------
+
+\subsection{Patch Embedding}
+
+The surface and upper-air components of $\mathbf{x}_t$ are independently
+tokenized:
+\begin{align}
+  \text{PatchEmbed2D}:&\quad
+    \mathbf{x}_t^s \;\longrightarrow\; \mathbf{S}
+    \in \mathbb{R}^{B \times (H' W') \times D},
+    \quad D = 240,\\
+  \text{PatchEmbed3D}:&\quad
+    \mathbf{x}_t^a \;\longrightarrow\; \mathbf{A}
+    \in \mathbb{R}^{B \times (L' H' W') \times D},
+\end{align}
+with patch size $(p_v,\, p_i,\, p_j) = (2, 4, 4)$, giving
+\begin{equation}
+  H' = \frac{H}{p_i}, \qquad
+  W' = \frac{W}{p_j}, \qquad
+  L' = \frac{L}{p_v}.
+\end{equation}
+Tokens are concatenated along the vertical axis:
+\begin{equation}
+  \mathbf{X}
+  = \bigl[\mathbf{A},\;\mathbf{S}.\mathrm{unsqueeze}(2)\bigr]
+  \in \mathbb{R}^{B \times D \times (L'+1) \times H' \times W'}.
+\end{equation}
+
+\subsection{Swin-3D Encoder}
+
+The encoder applies alternating regular (W-MSA) and shifted-window (SW-MSA)
+3-D multi-head self-attention blocks with Earth-position biases, in four stages
+with depths $[2,6,6,2]$ and attention heads $(6,12,12,6)$:
+\begin{align}
+  \text{Stage 1:}&\quad \mathbf{X} \;\to\; \mathbf{Z}_1,
+    \quad\text{2 blocks, 6 heads, native resolution},\\
+  \text{DownSample:}&\quad \mathbf{Z}_1 \;\to\; \mathbf{Z}_1',
+    \quad\text{spatial factor } s=2,\\
+  \text{Stage 2:}&\quad \mathbf{Z}_1' \;\to\; \mathbf{Z}_2,
+    \quad\text{6 blocks, 12 heads, }2D\text{ channels},\\
+  \text{Stage 3:}&\quad \mathbf{Z}_2 \;\to\; \mathbf{Z}_3,
+    \quad\text{6 blocks, 12 heads, }2D\text{ channels}.
+\end{align}
+This yields the Pangu encoder latent (the internal representation used by
+$\mathbf{F}^1_\theta$ and shared with $\mathbf{F}^2_\theta$):
+\begin{equation}
+  \mathbf{x}^{\ell}
+  = \mathcal{E}_{\theta}\!\left(\mathbf{x}_t,\,c\right)
+  \in \mathbb{R}^{B \times C_\ell \times H_\ell \times W_\ell},
+\end{equation}
+where $C_\ell$, $H_\ell$, $W_\ell$ are determined by $D$, patch size, and
+spatial scale factor $s = 2$.
+
+\subsection{Swin-3D Decoder}
+
+A symmetric upsampling decoder with skip connections reconstructs predictions:
+\begin{equation}
+  \mathbf{x}_{\mathrm{out}}
+  = \mathcal{D}_{\theta}\!\left(\mathbf{x}^{\ell},\,\bm{\sigma},\,c\right),
+\end{equation}
+where $\bm{\sigma}$ are the encoder skip features. Two patch-recovery heads
+project back to physical space:
+\begin{align}
+  \text{PatchRecovery2D}:&\quad
+    \mathbf{x}_{\mathrm{out}} \;\to\;
+    \hat{\mathbf{x}}_{t+1}^s \in \mathbb{R}^{B \times C_s \times H \times W},\\
+  \text{PatchRecovery3D}:&\quad
+    \mathbf{x}_{\mathrm{out}} \;\to\;
+    \hat{\mathbf{x}}_{t+1}^a \in \mathbb{R}^{B \times C_a \times L \times H \times W}.
+\end{align}
+The full deterministic forward pass of $\mathbf{F}^1_\theta$ (frozen during SI
+training) is:
+\begin{equation}
+  \hat{\mathbf{x}}_{t+\tau}^{\mathrm{det}}
+  = \mathbf{F}^1_\theta\!\left(\mathbf{x}_t,\,c\right)
+  = \mathcal{D}_\theta\!\left(\mathcal{E}_\theta(\mathbf{x}_t, c),\,
+    \bm{\sigma},\,c\right).
+\end{equation}
+
+\subsection{Encoder as a Fixed Latent Map}
+
+During training of $\mathbf{F}^2_\theta$, the frozen encoder $\mathcal{E}_\theta$
+(no gradient) is used to obtain both the current and ground-truth latents:
+\begin{equation}
+  \mathbf{x}^{\ell}
+    = \mathcal{E}_\theta(\mathbf{x}_t,\,c),
+  \qquad
+  \mathbf{y}^{\ell}
+    = \mathcal{E}_\theta(\mathbf{y}_{t+1},\,c).
+\end{equation}
+
+\paragraph{Architecture summary.}
+The Pangu component ($\mathbf{F}^1_\theta$) is a 3-D Swin Transformer that maps
+$\mathbf{x}_t$ to a deterministic conditional-mean prediction
+$\hat{\mathbf{x}}_{t+\tau}^{\mathrm{det}}$.  Inputs are tokenized via
+PatchEmbed2D (surface + boundary, $(p_i\times p_j)=(4\times4)$, $D=240$) and
+PatchEmbed3D (upper-air, $(p_v\times p_i\times p_j)=(2\times4\times4)$),
+concatenated along the vertical axis.  Four encoder stages (depths
+$[2,6,6,2]$, heads $(6,12,12,6)$) with a $2\times$ downsampling step between
+stages 1 and 2 compress the input into $\mathbf{x}^{\ell}$.  A symmetric
+decoder with skip connections and patch-recovery heads reconstructs physical
+output.  The entire $\mathbf{F}^1_\theta$ is pre-trained then \textbf{frozen}
+for SI training, providing a fixed latent space for $\mathbf{F}^2_\theta$.
+
+% ---------------------------------------------------------------------------
+\section{Conditional Information $c$}
+% ---------------------------------------------------------------------------
+
+The conditioning signal $c$ supplied to both $\mathbf{F}^1_\theta$ and
+$\mathbf{F}^2_\theta$ has four components:
+\begin{equation}
+  c = \bigl(c^{\mathrm{sfc}},\;c^{\mathrm{bnd}},\;c^{\mathrm{vae}},\;
+            c^{\mathrm{lat}}\bigr),
+\end{equation}
+where:
+\begin{itemize}
+  \item $c^{\mathrm{sfc}} = \mathbf{x}_t^s$\;: surface fields (T2m, U10, \ldots).
+  \item $c^{\mathrm{bnd}} = \mathbf{x}_t^b$\;: boundary / forcing fields.
+  \item $c^{\mathrm{vae}}$\;: low-dimensional VAE latent encoding slow surface
+        modes (SST, soil moisture) -- see Section~\ref{sec:vae}.
+  \item $c^{\mathrm{lat}} = \mathbf{x}^{\ell}$\;: Pangu encoder latent
+        (mean prediction in latent space).
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{Component $\mathbf{F}^2_\theta$ Part I -- VAE Conditioning}
+\label{sec:vae}
+% ---------------------------------------------------------------------------
+
+A small VAE compresses $\mathbf{x}_t^s$ into $c^{\mathrm{vae}}$, trained
+separately and frozen during SI training.
+
+\subsection{VAE Encoder}
+
+\begin{align}
+  \bm{\mu}_\phi,\;\log\bm{\sigma}^2_\phi
+    &= \mathrm{VAE\text{-}Enc}\!\left(\mathbf{x}_t^s;\,\phi\right),\\
+  c^{\mathrm{vae}}
+    &\sim \mathcal{N}\!\bigl(\bm{\mu}_\phi,\;
+       \mathrm{diag}(e^{\log\bm{\sigma}^2_\phi})\bigr),
+    \quad c^{\mathrm{vae}} \in \mathbb{R}^{B \times C_z \times H_z \times W_z},
+    \quad C_z = 2.
+\end{align}
+
+The VAE is trained by maximising the ELBO:
+\begin{equation}
+  \mathcal{L}_{\mathrm{VAE}}
+  = -\mathbb{E}_{q}\!\left[\log p\!\left(\mathbf{x}_t^s \mid c^{\mathrm{vae}}\right)\right]
+  + \lambda_{\mathrm{KL}}\,
+    D_{\mathrm{KL}}\!\left[
+      q\!\left(c^{\mathrm{vae}}\mid\mathbf{x}_t^s\right)
+      \;\|\;\mathcal{N}(\mathbf{0},\mathbf{I})
+    \right],
+  \quad \lambda_{\mathrm{KL}} = 0.01.
+\end{equation}
+The KL term between two diagonal Gaussians is
+\begin{equation}
+  D_{\mathrm{KL}}(q\,\|\,p)
+  = \frac{1}{2}\sum_k
+    \Bigl(
+      \log\sigma^2_{p,k} - \log\sigma^2_{q,k}
+      + \frac{\sigma^2_{q,k} + (\mu_{q,k}-\mu_{p,k})^2}{\sigma^2_{p,k}}
+      - 1
+    \Bigr).
+\end{equation}
+
+% ---------------------------------------------------------------------------
+\section{Component $\mathbf{F}^2_\theta$ Part II -- Stochastic Interpolant (SI)}
+% ---------------------------------------------------------------------------
+
+\subsection{Conceptual Framework}
+
+The Stochastic Interpolant \cite{albergo2022building} defines a probability
+path between a source $p_0$ and a target $p_1$ via a continuous-time
+interpolant parameterised by $ts \in [0,1]$:
+\begin{equation}
+  \mathbf{I}(ts)
+  = \alpha(ts)\,\mathbf{x}_0
+  + \beta(ts)\,\mathbf{x}_1
+  + \gamma(ts)\,\bm{\varepsilon},
+\end{equation}
+where $\mathbf{x}_0 \sim p_0$, $\mathbf{x}_1 \sim p_1$, and
+$\bm{\varepsilon} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$.
+
+In the \textbf{residual} formulation used here:
+\begin{equation}
+  p_0 = \mathcal{N}(\mathbf{0}, \mathbf{I}),
+  \qquad
+  p_1 = p\!\left(\mathbf{r} \mid \mathbf{x}_t,\,c\right),
+  \qquad
+  \mathbf{r}
+  \;:=\; \mathbf{y}^{\ell} - \mathbf{x}^{\ell}
+  \;=\; \mathcal{E}_\theta(\mathbf{y}_{t+1},\,c)
+       - \mathcal{E}_\theta(\mathbf{x}_t,\,c).
+\end{equation}
+That is, $\mathbf{F}^2_\theta$ learns to sample the residual -- what
+$\mathbf{F}^1_\theta$'s mean-latent prediction misses -- not the full latent.
+
+\subsection{Interpolation Schedules}
+
+With the \textbf{linear path} (\texttt{gamma\_type = `zero'}):
+\begin{align}
+  \alpha(ts) &= 1 - ts, & \dot{\alpha}(ts) &= -1,\\
+  \beta(ts)  &= ts,     & \dot{\beta}(ts)  &=  1,\\
+  \gamma(ts) &= 0.      &                  &
+\end{align}
+Therefore:
+\begin{equation}
+  \mathbf{I}(ts) = (1-ts)\,\mathbf{x}_0 + ts\,\mathbf{r},
+  \qquad
+  \frac{d\mathbf{I}}{d\,ts} = -\mathbf{x}_0 + \mathbf{r}.
+\end{equation}
+
+\subsection{UNet Drift Network ($\mathbf{F}^2_\theta$)}
+
+A conditional UNet $f_{\bm{\theta}}$ learns the velocity (drift) field over
+the interpolant path, conditioned on $c^{\mathrm{vae}}$:
+\begin{equation}
+  f_{\bm{\theta}} :\;
+  \bigl(\mathbf{I}(ts),\; c^{\mathrm{vae}},\; ts\bigr)
+  \;\longrightarrow\;
+  \mathbf{v}_{\bm{\theta}}
+  \in \mathbb{R}^{B \times C_\ell \times H_\ell \times W_\ell}.
+\end{equation}
+The architecture (\texttt{ConUNet\_1degV2}) uses sinusoidal embeddings of $ts$,
+ResNet blocks with GroupNorm and SiLU, cross-attention fusion of $c^{\mathrm{vae}}$
+at the bottleneck and input, and a U-Net encoder--decoder with max-pool
+downsampling and bilinear upsampling.
+
+\subsection{Training Objective}
+
+For each training pair $(\mathbf{x}_t,\;\mathbf{y}_{t+1})$, $ts \sim
+\mathrm{Uniform}(\varepsilon, 1{-}\varepsilon)$:
+
+\begin{enumerate}
+  \item \textbf{Latents} (frozen $\mathcal{E}_\theta$, $\nabla = 0$):
+        \begin{equation}
+          \mathbf{x}^{\ell} = \mathcal{E}_\theta(\mathbf{x}_t,\,c),
+          \qquad
+          \mathbf{y}^{\ell} = \mathcal{E}_\theta(\mathbf{y}_{t+1},\,c).
+        \end{equation}
+
+  \item \textbf{Residual target}:
+        \begin{equation}
+          \mathbf{r} = \mathbf{y}^{\ell} - \mathbf{x}^{\ell}.
+        \end{equation}
+
+  \item \textbf{VAE condition} (frozen):
+        \begin{equation}
+          c^{\mathrm{vae}} = \mathrm{VAE\text{-}Enc}\!\left(\mathbf{x}_t^s\right).
+        \end{equation}
+
+  \item \textbf{Interpolant}:
+        \begin{equation}
+          \mathbf{x}_0 \sim \mathcal{N}(\mathbf{0},\mathbf{I}),
+          \quad
+          \mathbf{I}_{ts} = (1-ts)\,\mathbf{x}_0 + ts\,\mathbf{r},
+          \quad
+          \dot{\mathbf{I}}_{ts} = -\mathbf{x}_0 + \mathbf{r}.
+        \end{equation}
+
+  \item \textbf{Antithetic perturbation}
+        ($\bm{\varepsilon} \sim \mathcal{N}(\mathbf{0},\mathbf{I})$,
+        variance reduction):
+        \begin{align}
+          \mathbf{I}_{ts}^+ &= \mathbf{I}_{ts} + \gamma(ts)\,\bm{\varepsilon},
+          &
+          \mathbf{I}_{ts}^- &= \mathbf{I}_{ts} - \gamma(ts)\,\bm{\varepsilon},\\
+          \bm{\tau}^+ &= \dot{\mathbf{I}}_{ts} - \bm{\varepsilon}\,\dot{\gamma}(ts),
+          &
+          \bm{\tau}^- &= \dot{\mathbf{I}}_{ts} + \bm{\varepsilon}\,\dot{\gamma}(ts).
+        \end{align}
+
+  \item \textbf{Loss}:
+        \begin{equation}
+          \mathbf{v}^{\pm}
+          = f_{\bm{\theta}}\!\left(\mathbf{I}_{ts}^{\pm},\;c^{\mathrm{vae}},\;ts\right),
+        \end{equation}
+        \begin{equation}
+          \boxed{
+          \mathcal{L}_{\mathrm{SI}}
+          = \mathbb{E}_{ts}\!\left[
+              \bigl\|\mathbf{v}^+ - \bm{\tau}^+\bigr\|^2
+            + \bigl\|\mathbf{v}^- - \bm{\tau}^-\bigr\|^2
+            \right]},
+        \end{equation}
+        where $\|\cdot\|^2$ is the mean over spatial and channel dimensions:
+        \begin{equation}
+          \|\mathbf{A}\|^2
+          = \frac{1}{C_\ell H_\ell W_\ell}
+            \sum_{v,i,j} A_{v,i,j}^2.
+        \end{equation}
+\end{enumerate}
+
+\subsection{Sampling (Inference)}
+
+Given initial state $\mathbf{x}_t$ and conditioning $c$:
+
+\begin{enumerate}
+  \item \textbf{Pangu latent and VAE condition}:
+        \begin{equation}
+          \mathbf{x}^{\ell} = \mathcal{E}_\theta(\mathbf{x}_t,\,c),
+          \qquad
+          c^{\mathrm{vae}} = \mathrm{VAE\text{-}Enc}\!\left(\mathbf{x}_t^s\right).
+        \end{equation}
+
+  \item \textbf{Residual sampling} -- Euler integration of the SI ODE over
+        $T=15$ steps, $ts_k = k/T$:
+        \begin{equation}
+          \mathbf{x}_0^{(0)} \sim \mathcal{N}(\mathbf{0},\mathbf{I}),
+          \qquad
+          \mathbf{x}_0^{(k+1)}
+          = \mathbf{x}_0^{(k)}
+          + \Delta ts\;
+            f_{\bm{\theta}}\!\left(\mathbf{x}_0^{(k)},\;c^{\mathrm{vae}},\;ts_k\right),
+          \quad k = 0,\ldots,T{-}1.
+        \end{equation}
+        Set $\hat{\mathbf{r}} = \mathbf{x}_0^{(T)}$.
+
+  \item \textbf{Full latent reconstruction}:
+        \begin{equation}
+          \hat{\mathbf{x}}^{\ell}
+          = \mathbf{x}^{\ell} + \hat{\mathbf{r}}.
+        \end{equation}
+
+  \item \textbf{Decode} (frozen $\mathcal{D}_\theta$):
+        \begin{equation}
+          \hat{\mathbf{x}}_{t+\tau}
+          = \mathcal{D}_\theta\!\left(\hat{\mathbf{x}}^{\ell},\,\bm{\sigma},\,c\right).
+        \end{equation}
+
+  \item \textbf{Ensemble}: repeat steps 2--4 with $N_{\mathrm{ens}}$
+        independent noise draws to obtain
+        $\left\{\hat{\mathbf{x}}_{t+\tau}^{(m)}\right\}_{m=1}^{N_{\mathrm{ens}}}$.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\section{Autoregressive Rollout}
+% ---------------------------------------------------------------------------
+
+For lead times $\tau > 1$ day the model is applied autoregressively. Let
+$\Phi_\theta$ denote one 24-hour forward pass:
+\begin{equation}
+  \hat{\mathbf{x}}_{t+n}
+  = \Phi_\theta\!\left(\hat{\mathbf{x}}_{t+n-1},\,c_{t+n}\right),
+  \qquad n = 1, 2, \ldots, \tau,
+\end{equation}
+where $c_{t+n}$ updates boundary conditions (e.g.\ TOA solar radiation) to the
+correct calendar time. Lead times up to $\tau = 45$ days are supported ($N_{\mathrm{steps}} = 45$).
+
+% ---------------------------------------------------------------------------
+\section{Training Data and Normalization}
+% ---------------------------------------------------------------------------
+
+\begin{itemize}
+  \item \textbf{Dataset}: ERA5 global reanalysis, 1979--2018, HDF5 format.
+  \item \textbf{Variables}: upper-air (T, U, V, Q, Z at 17 levels); surface
+        (T2m, U10, V10, MSLP, SP); diagnostic (TP24hr, TNLWRF); land (soil
+        water, soil temperature, skin temperature); ocean (SST); boundary
+        (land-sea mask, $Z_s$, TISR).
+  \item \textbf{Normalization}: each field is standardised with per-variable
+        climatological mean $\mu_c$ and standard deviation $\sigma_c$:
+        \begin{equation}
+          \tilde{\mathbf{x}} = \frac{\mathbf{x} - \mu_c}{\sigma_c}.
+        \end{equation}
+  \item \textbf{Latitude weights}: all losses use
+        \begin{equation}
+          w_{i,j}
+          = \frac{N_{\mathrm{lat}}\,\cos\varphi_i}
+                 {\displaystyle\sum_{i'}\cos\varphi_{i'}}
+        \end{equation}
+        to correct for grid-area convergence toward the poles, where $i$ indexes
+        latitude $\varphi_i$ and $j$ indexes longitude.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{Loss Functions Summary}
+% ---------------------------------------------------------------------------
+
+\paragraph{(a) $\mathbf{F}^1_\theta$ -- Pangu deterministic training (Stage 1).}
+\begin{equation}
+  \mathcal{L}_{\mathrm{det}}
+  = \frac{1}{N}\sum_{i,j} w_{i,j}\,
+    \Bigl|\hat{\mathbf{x}}_{t+1,i,j}^{\mathrm{det}} - \mathbf{y}_{t+1,i,j}\Bigr|_1.
+\end{equation}
+
+\paragraph{(b) VAE training (Stage 2, frozen for SI).}
+\begin{equation}
+  \mathcal{L}_{\mathrm{VAE}}
+  = \mathcal{L}_{\mathrm{rec}}
+  + \lambda_{\mathrm{KL}}\,
+    D_{\mathrm{KL}}\!\left[
+      q\!\left(c^{\mathrm{vae}}\mid\mathbf{x}_t^s\right)
+      \;\|\;\mathcal{N}(\mathbf{0},\mathbf{I})
+    \right],
+  \quad \lambda_{\mathrm{KL}} = 0.01.
+\end{equation}
+
+\paragraph{(c) $\mathbf{F}^2_\theta$ -- SI training (Stage 3).}
+\begin{equation}
+  \mathcal{L}_{\mathrm{SI}}
+  = \mathbb{E}_{ts}\!\left[
+      \bigl\|f_{\bm{\theta}}(\mathbf{I}_{ts}^+,\,c^{\mathrm{vae}},\,ts)
+             - \bm{\tau}^+\bigr\|^2
+    + \bigl\|f_{\bm{\theta}}(\mathbf{I}_{ts}^-,\,c^{\mathrm{vae}},\,ts)
+             - \bm{\tau}^-\bigr\|^2
+    \right].
+\end{equation}
+
+\paragraph{(d) Evaluation -- CRPS (post-hoc, not used in training).}
+\begin{equation}
+  \mathrm{CRPS}
+  = \mathbb{E}_{m}\!\left[
+      \bigl|\hat{\mathbf{x}}_{t+\tau}^{(m)} - \mathbf{y}_{t+\tau}\bigr|
+    \right]
+  - \frac{1}{2}\,\mathbb{E}_{m,m'}\!\left[
+      \bigl|\hat{\mathbf{x}}_{t+\tau}^{(m)} - \hat{\mathbf{x}}_{t+\tau}^{(m')}\bigr|
+    \right],
+\end{equation}
+latitude-weighted with $w_{i,j}$; lower is better.
+
+% ---------------------------------------------------------------------------
+\section{Key Model Hyperparameters}
+% ---------------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+\multicolumn{2}{l}{\textit{$\mathbf{F}^1_\theta$ -- Pangu Swin Transformer}} \\
+\quad Embedding dimension $D$                          & 240 \\
+\quad Stage depths                                     & $[2,\,6,\,6,\,2]$ \\
+\quad Attention heads                                  & $(6,\,12,\,12,\,6)$ \\
+\quad Window size $(v, i, j)$                          & $(2,\,6,\,10)$ \\
+\quad Patch size $(p_v, p_i, p_j)$                     & $(2,\,4,\,4)$ \\
+\quad Spatial scale factor $s$                         & 2 \\
+\midrule
+\multicolumn{2}{l}{\textit{VAE (conditioning for $\mathbf{F}^2_\theta$)}} \\
+\quad Latent channels $C_z$                            & 2 \\
+\quad Component channels                               & 8 \\
+\quad $\lambda_{\mathrm{KL}}$                          & 0.01 \\
+\midrule
+\multicolumn{2}{l}{\textit{$\mathbf{F}^2_\theta$ -- SI UNet (ConUNet\_1degV2)}} \\
+\quad Base channels $c_0$                              & 2 \\
+\quad Channel multipliers                              & $(1,\,2,\,4,\,8)$ \\
+\quad ResNet groups                                    & 4 \\
+\quad Dropout                                          & 0.1 \\
+\quad Interpolant path                                 & linear \\
+\quad $\gamma$ type                                    & zero (deterministic) \\
+\quad Integration steps $T$                            & 15 \\
+\midrule
+\multicolumn{2}{l}{\textit{Training}} \\
+\quad Optimizer                                        & Adam \\
+\quad Learning rate                                    & $10^{-4}$ \\
+\quad Weight decay                                     & $3\times10^{-6}$ \\
+\quad LR scheduler                                     & CosineAnnealingLR \\
+\quad Batch size                                       & 4 \\
+\quad Max epochs                                       & 200 \\
+\quad Effective time step                              & 24 h \\
+\quad Training period                                  & 1979--2018 \\
+\bottomrule
+\end{tabular}
+\caption{Key hyperparameters for all model components.}
+\end{table}
+
+% ---------------------------------------------------------------------------
+\section{Notation Summary}
+% ---------------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{ll}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$\hat{\mathbf{x}}_{t+\tau}$     & Predicted states at lead time $\tau$ \\
+$\mathbf{x}_t$                  & Input states at initial timestamp $t$ \\
+$\mathbf{y}$                    & Ground truth (ERA5 reanalysis) \\
+$\tau$                          & Lead time (days) \\
+$t$                             & Initial timestamp (physical time) \\
+$ts$                            & Diffusion / SI sampling timestamp, $ts\in[0,1]$ \\
+$i,\,j,\,v$                     & Latitude, longitude, vertical level indices \\
+$w_{i,j}$                       & Cosine latitude weights at grid point $(i,j)$ \\
+$\mathbf{F}^1_\theta$           & Deterministic Pangu AI model \\
+$\mathbf{F}^2_\theta$           & Stochastic SI correction model \\
+$c$                             & Conditional information (four components) \\
+$c^{\mathrm{vae}}$              & VAE latent (slow surface modes) \\
+$\mathcal{E}_\theta$            & Frozen Pangu encoder \\
+$\mathcal{D}_\theta$            & Frozen Pangu decoder \\
+$\mathbf{x}^{\ell}$            & Pangu encoder latent of $\mathbf{x}_t$ \\
+$\mathbf{y}^{\ell}$            & Pangu encoder latent of ground truth $\mathbf{y}_{t+1}$ \\
+$\mathbf{r}$                    & Residual: $\mathbf{y}^{\ell} - \mathbf{x}^{\ell}$ \\
+$\mathbf{I}(ts)$                & Stochastic interpolant at time $ts$ \\
+$f_{\bm{\theta}}$               & SI UNet drift network \\
+$\hat{\mathbf{r}}$              & SI-sampled residual (one ensemble member) \\
+$\hat{\mathbf{x}}^{\ell}$      & $\mathbf{x}^{\ell} + \hat{\mathbf{r}}$: full latent \\
+$N_{\mathrm{ens}}$              & Number of ensemble members (default 5) \\
+$T$                             & SI integration steps (default 15) \\
+$H,\,W$                         & Grid: $180\times360$ at $1^\circ$ \\
+$L$                             & Pressure levels (17) \\
+\bottomrule
+\end{tabular}
+\caption{Notation used throughout this document.}
+\end{table}
+
+% ---------------------------------------------------------------------------
+\begin{thebibliography}{9}
+\bibitem{albergo2022building}
+  M.~S.\ Albergo and E.\ Vanden-Eijnden,
+  ``Building normalizing flows with stochastic interpolants,''
+  \textit{arXiv:2209.15571}, 2022.
+
+\bibitem{bi2023pangu}
+  K.\ Bi, L.\ Xie, H.\ Zhang, X.\ Chen, X.\ Gu, and Q.\ Tian,
+  ``Accurate medium-range global weather forecasting with 3D neural networks,''
+  \textit{Nature}, vol.\ 619, pp.\ 533--538, 2023.
+\end{thebibliography}
+
+\end{document}

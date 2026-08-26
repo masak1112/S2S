@@ -1,0 +1,47 @@
+# S2S runtime dependencies.
+# Versions pinned to the known-good s2s_env conda environment.
+# NOTE: torch / torchvision are NOT listed here -- they are installed
+# separately in the Dockerfile from the CUDA 12.4 wheel index.
+
+# --- core numerics ---
+numpy==1.26.4
+scipy==1.15.1
+pandas==2.2.3
+
+# --- deep learning helpers ---
+timm==1.0.14
+einops==0.8.1
+torchmetrics==1.6.1
+lightning==2.5.0.post0
+pytorch-lightning==2.5.0.post0
+lightning-utilities==0.12.0
+torch-harmonics==0.6.2
+safetensors==0.5.2
+huggingface-hub==0.28.1
+
+# --- data / IO ---
+h5py==3.12.1
+netCDF4==1.7.2
+xarray==2025.1.2
+cf_xarray==0.10.0
+cftime==1.6.4.post1
+dask==2025.2.0
+fsspec==2025.2.0
+
+# --- geospatial / plotting ---
+Cartopy==0.24.1
+matplotlib==3.10.0
+seaborn==0.13.2
+shapely==2.0.7
+pyproj==3.7.1
+pyshp==2.3.1
+
+# --- config / logging / misc ---
+ruamel.yaml==0.18.10
+ruamel.yaml.clib==0.2.12
+PyYAML==6.0.2
+wandb==0.25.1
+tqdm==4.67.1
+psutil==7.0.0
+python-dateutil==2.9.0.post0
+GitPython==3.1.44

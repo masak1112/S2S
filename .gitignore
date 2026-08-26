@@ -50,3 +50,7 @@ wandb/
 gif_out/
 acc_plots/
 spectra_out/
+
+checkpoints/
+v2.0/HPC_scripts/*.out
+v2.0/HPC_scripts/*_log
