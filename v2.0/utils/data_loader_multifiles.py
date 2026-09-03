@@ -273,7 +273,7 @@ class GetDataset(Dataset):
             torch.manual_seed(0)
             
         if self.params.sel_dates and not self.train:
-            years = [2019,2020,2021,2022,2023,2024]
+            years = list(range(self.year_start, self.year_end))
             self.dates_all = []
             for year in years:
                 dates= get_initialization_dates(year)   

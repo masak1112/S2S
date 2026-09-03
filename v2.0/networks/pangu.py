@@ -124,14 +124,8 @@ class PanguModel_Plasim(nn.Module):
                 amax_compute_algo="max"
             )
 
-        #if hasattr(params, 'embed_dim'):
-        #   embed_dim = params.embed_dim
-        # else:
-        #     embed_dim = 192
         embed_dim = 240
-        print(f"Embedding Dimensions are {embed_dim}")
 
-        #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
             drop_path = np.append(np.linspace(0, 0.2, np.sum(params.depths[:2])), np.linspace(0.2, 0, np.sum(params.depths[2:]))).tolist()
 
@@ -163,11 +157,8 @@ class PanguModel_Plasim(nn.Module):
                         nans = torch.isnan(land_mask)
                         land_mask = land_mask.masked_fill_(nans, 0.)
                         land_mask_ds.close()
-                    if self.predict_delta:
-                        self.land_mask = Mask(land_mask)
-                    else:
-                        land_mask_fill = torch.stack([(1. - land_mask) * mask_fill[var] for var in params.land_variables])
-                        self.land_mask = Mask(land_mask, land_mask_fill)
+                    land_mask_fill = torch.stack([(1. - land_mask) * mask_fill[var] for var in params.land_variables])
+                    self.land_mask = Mask(land_mask, land_mask_fill)
 
         if hasattr(params, 'ocean_variables'):
             if len(params.ocean_variables) > 0:
@@ -186,11 +177,9 @@ class PanguModel_Plasim(nn.Module):
                         land_mask = land_mask.masked_fill_(nans, 0.)
                         land_mask_ds.close()
                         ocean_mask = (1. - land_mask)
-                    if self.predict_delta:
-                        self.ocean_mask = Mask(ocean_mask)
-                    else:
-                        ocean_mask_fill = torch.stack([(1. - ocean_mask) * mask_fill[var] for var in params.ocean_variables])
-                        self.ocean_mask = Mask(ocean_mask, ocean_mask_fill)
+    
+                    ocean_mask_fill = torch.stack([(1. - ocean_mask) * mask_fill[var] for var in params.ocean_variables])
+                    self.ocean_mask = Mask(ocean_mask, ocean_mask_fill)
 
         if hasattr(params, 'diagnostic_variables'):
             self.diagnostic_vars = params.diagnostic_variables
@@ -242,9 +231,7 @@ class PanguModel_Plasim(nn.Module):
         self.idx_upper_air_var_bound= self.varying_boundary_variables.index('toa_incident_solar_radiation') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
     
-        
-        #####
-
+    
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)        
         if self.upper_air_boundary:
             self.patchembed2d_upper_air_boundary = PatchEmbed2D(
@@ -282,8 +269,7 @@ class PanguModel_Plasim(nn.Module):
         # print("EST_input_resolution", EST_input_resolution)
         if not self.vertical_windowing:
             self.window_size[0] = EST_input_resolution[0]
-        # print("EST_input_resolution", EST_input_resolution)
-
+    
         self.layer1 = EarthSpecificLayer(
             dim=embed_dim,
             input_resolution=EST_input_resolution,
@@ -294,17 +280,6 @@ class PanguModel_Plasim(nn.Module):
             vertical_windowing=params.vertical_windowing,
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
-        
-        print('Embed Dim:')
-        print(embed_dim)
-        print('Input resolution:')
-        print(EST_input_resolution)
-        print('depth')
-        print(params.depths[0])
-        print('num_heads')
-        print(num_heads[0])
-        print('drop_path:')
-        print(drop_path[:depths_cumsum[0]])
         
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
                                      downsample_factor=params.updown_scale_factor)
@@ -384,7 +359,7 @@ class PanguModel_Plasim(nn.Module):
             self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
 
-    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False, vae_inputs=None):
+    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, is_train = False):
         """
         Args:
             surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
@@ -427,108 +402,77 @@ class PanguModel_Plasim(nn.Module):
 
         if USE_TE:
             # with te.fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe):
-            if self.checkpointing == 2 and train:
+            if self.checkpointing == 2 and is_train:
                 x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
             else:
-                x = self.layer1(x, train)
-            #print(f'Shape after layer 1: {x.shape}')
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
+                x = self.layer1(x, is_train)
+
             skip = x
             x = self.downsample(x)
-            #print(f'Shape after downsample: {x.shape}')
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(torch.std(x))
-            if self.checkpointing == 2 and train:
+
+            if self.checkpointing == 2 and is_train:
                 x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
                 x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
                 x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
                 x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
             else:
-                x = self.layer2(x, train)
-                x = self.layer3(x, train)
+                x = self.layer2(x, is_train)
+                x = self.layer3(x, is_train)
                 x = self.upsample(x)
                 #print(f'Shape after upsample: {x.shape}')
                 #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
                 #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
                 #print(torch.std(x))
-                x = self.layer4(x, train)
+                x = self.layer4(x, is_train)
         else:
             # with amp.autocast(enabled=True):
-            if self.checkpointing == 2 and train:
+            if self.checkpointing == 2 and is_train:
                 x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
             else:
-                x = self.layer1(x, train)
+                x = self.layer1(x, is_train)
             #print(f'Shape after layer 1: {x.shape}')
             #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
             #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
             #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
             skip = x
             x = self.downsample(x)
-            if self.checkpointing == 2 and train:
+            if self.checkpointing == 2 and is_train:
                 x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
                 x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
                 print("After layer 3 shape:", x.shape)
                 x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
                 x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
             else:
-                x = self.layer2(x, train)
-                x = self.layer3(x, train)
+                x = self.layer2(x, is_train)
+                x = self.layer3(x, is_train)
                 print("After layer 3 shape:", x.shape) #2, 40500, 480
 
                 x = self.upsample(x)
-                x = self.layer4(x, train)
+                x = self.layer4(x, is_train)
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
 
-        if self.predict_delta:
-            output_surface_delta  = output[:, :, -1, :, :]
-            if self.upper_air_boundary:
-                output_upper_air_delta = output[:, :, 1:-1, :, :]
-            else:
-                output_upper_air_delta = output[:, :, :-1, :, :]
-            if self.checkpointing > 0 and train:
-                output_2D = checkpoint(self.patchrecovery2d, output_surface_delta, use_reentrant=self.use_reentrant)
-            else:
-                output_2D = self.patchrecovery2d(output_surface_delta)
-            output_surface = output_2D[:, self.surface_prognostic_idxs]
-            if self.has_land and self.mask_output:
-                output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
-            if self.has_ocean and self.mask_output:
-                output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
-            if self.checkpointing > 0 and train:
-                output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air_delta, use_reentrant=self.use_reentrant)
-            else:
-                output_upper_air = self.patchrecovery3d(output_upper_air_delta)
+        output_surface = output[:, :, -1, :, :]
+        if self.upper_air_boundary:
+            output_upper_air = output[:, :, 1:-1, :, :]
         else:
-            output_surface = output[:, :, -1, :, :]
-            if self.upper_air_boundary:
-                output_upper_air = output[:, :, 1:-1, :, :]
-            else:
-                output_upper_air = output[:, :, :-1, :, :]
-            if self.checkpointing > 0 and train:
-                output_2D = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=self.use_reentrant)
-            else:
-                output_2D = self.patchrecovery2d(output_surface)
-            output_surface = output_2D[:, self.surface_prognostic_idxs]
-            if self.has_land and self.mask_output:
-                output_surface[:, self.num_surface_vars : self.num_surface_vars + self.num_land_vars] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
-            if self.has_ocean and self.mask_output:
-                output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
-                    self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
-
-            if self.checkpointing > 0 and train:
-                output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=self.use_reentrant)
-            else:
-                output_upper_air = self.patchrecovery3d(output_upper_air)
+            output_upper_air = output[:, :, :-1, :, :]
+        if self.checkpointing > 0 and is_train:
+            output_2D = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=self.use_reentrant)
+        else:
+            output_2D = self.patchrecovery2d(output_surface)
+        output_surface = output_2D[:, self.surface_prognostic_idxs]
+        if self.has_land and self.mask_output:
+            output_surface[:, self.num_surface_vars : self.num_surface_vars + self.num_land_vars] = \
+                self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
+        if self.has_ocean and self.mask_output:
+            output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
+                self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
+        if self.checkpointing > 0 and is_train:
+            output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=self.use_reentrant)
+        else:
+            output_upper_air = self.patchrecovery3d(output_upper_air)
         if self.num_diagnostic_vars > 0:
             output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
                 output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
@@ -659,7 +603,6 @@ class DownSample(nn.Module):
         assert in_pl == out_pl, "the dimension of pressure level shouldn't change"
         h_pad = out_lat * self.downsample_factor - in_lat
         w_pad = out_lon * self.downsample_factor - in_lon
-
         pad_top = h_pad // 2
         pad_bottom = h_pad - pad_top
 
@@ -784,9 +727,9 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
             for i in range(depth)
         ])
 
-    def forward(self, x, train = False):
+    def forward(self, x, is_train = False):
         for blk in self.blocks:
-            if self.checkpointing > 2 and train:
+            if self.checkpointing > 2 and is_train:
                 x = checkpoint(blk, x, use_reentrant=self.use_reentrant)
             else:
                 x = blk(x)
