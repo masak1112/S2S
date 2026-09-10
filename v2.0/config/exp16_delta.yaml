@@ -17,7 +17,7 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 's2s-dev'
   exp_dir: 'results'
-  fresh_start: False
+  fresh_start: True
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
@@ -25,16 +25,17 @@ base_config: &BASE
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.01
-  mode: 'train'
+  mode: 'test'
   diffusion_model_type: "SI"
   num_ensemble_members: 1
   component: 8
   base_channels: 2
   z_channels: 2
-  test_iterations: 10000000000
-  checkpoint_path_vae: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"
-  checkpoint_path_det: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/training_checkpoints_determinstic/ckpt.tar"
-  checkpoint_path_diff: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/diff_ckpt.tar"
+  sel_dates: True
+  test_iterations: 20
+  # checkpoint_path_vae: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"
+  # checkpoint_path_det: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/training_checkpoints_determinstic/ckpt.tar"
+  # checkpoint_path_diff: "/projects/bdiu/bgong1/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/diff_ckpt.tar"
   #checkpoint_path_vae: "/glade/work/bgong/PanguWeather/v2.0/results/S2S/latent_vae_c1/training_checkpoints/ckpt.tar"
   #checkpoint_path_det: "/glade/work/bgong/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints_determinstic/ckpt.tar"
   #checkpoint_path_diff: "/glade/work/bgong/SI/PanguWeather/v2.0/HPC_scripts/results/S2S/si_c1/training_checkpoints/diff_ckpt.tar"
@@ -71,9 +72,9 @@ S2S: &S2S
               'snow_depth': 0.}
   mask_output: False
   train_year_start: 1979
-  train_year_end: 2018
-  val_year_start: 2018
-  val_year_end: 2019
+  train_year_end: 1980
+  val_year_start: 1979
+  val_year_end: 1980
   data_timedelta_hours: 6
   surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
   surface_std: 'pangu_s2s_1979-2018_surface_std.nc'
@@ -91,11 +92,11 @@ S2S: &S2S
   calendar: 'standard'
   timedelta_hours: 24
   batch_size: 4
-  max_epochs: 200
+  max_epochs: 2
   has_year_zero: False
   num_levels: 17upper_air_boundary
   #num_levels: 10
-  levels: [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+  levels: [5, 10, 20, 30, 50, 70, 150, 250, 400, 500, 850, 925, 1000]
   horizontal_resolution: [180, 360]
   depths: [2, 6, 6, 2]
   predict_delta: False
@@ -115,7 +116,6 @@ S2S: &S2S
   forecast_lead_times: [1, 2, 10, 15, 45] # 3, 5, 10, 15,4
   diagnostic_logs: True
   dropout_rate: 0
-
   lev: 'plev'
   num_inferences: 10000
 

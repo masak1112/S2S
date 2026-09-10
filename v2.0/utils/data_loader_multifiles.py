@@ -50,7 +50,9 @@
 import os, sys, gc, shutil
 import logging
 import glob
+import time
 import torch
+import torch.cuda.nvtx as nvtx
 import h5py
 #import random
 import numpy as np
@@ -481,14 +483,31 @@ class GetDataset(Dataset):
         data_idx = int((data_datetime - self.datetime_class(data_year, 1, 1, hour=0, has_year_zero=self.has_year_zero)).total_seconds())\
               // 3600 // self.data_timedelta_hours
         data_file_path = get_out_path(self.data_dir, data_year, data_idx)
-        if variable_list:
-            raw_data = get_data_given_path(data_file_path, variable_list)
-        else:
-            if out:
-                raw_data = get_data_given_path(data_file_path, self.variable_list_out)
-            else:
-                raw_data = get_data_given_path(data_file_path, self.variable_list_in)
-        return raw_data
+        vlist = variable_list or (self.variable_list_out if out else self.variable_list_in)
+
+        nvtx.range_push("dataloader/h5_open")
+        t0 = time.perf_counter()
+        f = h5py.File(data_file_path, 'r')
+        logging.debug("h5_open %.4fs %s", time.perf_counter() - t0, data_file_path)
+        nvtx.range_pop()
+
+        nvtx.range_push("dataloader/h5_read")
+        t0 = time.perf_counter()
+        data = {
+            main_key: {
+                sub_key: np.array(value)
+                for sub_key, value in group.items()
+                if sub_key in vlist + ['time']
+            }
+            for main_key, group in f.items()
+            if main_key in ['input']
+        }
+        f.close()
+        logging.debug("h5_read %.4fs", time.perf_counter() - t0)
+        nvtx.range_pop()
+
+        x = [data['input'][v] for v in vlist]
+        return np.stack(x, axis=0)
 
     def __len__(self):
         if self.params.sel_dates and not self.train:
@@ -506,10 +525,19 @@ class GetDataset(Dataset):
 
         # Condition 1: Training
         if self.train:
+            nvtx.range_push("dataloader/__getitem__/train")
             start_time = self.start_date + timedelta(hours=self.dates[index])
             end_time = self.start_date + timedelta(hours=self.dates[index] + self.timedelta_hours)
+
+            nvtx.range_push("dataloader/__getitem__/read_input")
             data_in  = self._get_data(start_time, out = False)
+            nvtx.range_pop()
+
+            nvtx.range_push("dataloader/__getitem__/read_target")
             data_out = self._get_data(end_time, out = True)
+            nvtx.range_pop()
+
+            nvtx.range_push("dataloader/__getitem__/reshape_mask")
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out = False)
             else:
@@ -518,7 +546,9 @@ class GetDataset(Dataset):
                 upper_air_t_1, surface_t_1, diagnostic_t_1 = self._reshape_and_mask_variables(data_out, out = True)
             else:
                 upper_air_t_1, surface_t_1 = self._reshape_and_mask_variables(data_out, out = True)
+            nvtx.range_pop()
 
+            nvtx.range_push("dataloader/__getitem__/normalize")
             if self.params.predict_delta:
                 surface_t_1 = surface_t_1 - surface_t
                 upper_air_t_1 = upper_air_t_1 - upper_air_t
@@ -534,6 +564,8 @@ class GetDataset(Dataset):
             if len(self.diagnostic_variables) > 0:
                 diagnostic_t_1 = self.diagnostic_transform(diagnostic_t_1)
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
+            nvtx.range_pop()
+
             #print('Normalized Boundary')
             if self.epsilon_factor > 0.:
                 if 'surface_ff_std' in self.params:
@@ -547,32 +579,43 @@ class GetDataset(Dataset):
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
                 upper_air_t = upper_air_t + upper_air_t_noise
 
+            nvtx.range_pop()  # dataloader/__getitem__/train
+
         # Condition for autoregression
         elif lead_times:
+            nvtx.range_push("dataloader/__getitem__/validate")
+
             if self.params.sel_dates and not self.train:
                 start_time = self.dates_all[index]
                 print("select the fixed dates")
-                
+
                 #print("start_time",start_time)
             else:
-                
+
                 start_time = self.start_date + timedelta(hours=self.dates[index])
                 print("start_time",start_time)
 
             # Load initial conditions
+            nvtx.range_push("dataloader/__getitem__/read_input")
             data_in = self._get_data(start_time, out = False)
+            nvtx.range_pop()
+
+            nvtx.range_push("dataloader/__getitem__/reshape_mask")
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
             else:
                 upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False)
+            nvtx.range_pop()
 
             max_lead_time = lead_times[-1]
             boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
 
+            nvtx.range_push("dataloader/__getitem__/read_boundary")
             varying_boundary_data.extend([self._fill_mask(\
                     torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+            nvtx.range_pop()
 
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data_i) for varying_boundary_data_i in varying_boundary_data], dim=0)
 
@@ -589,6 +632,7 @@ class GetDataset(Dataset):
                 # Iterate over each time step up to the maximum lead time
                 max_lead_time = lead_times[-1]
 
+                nvtx.range_push("dataloader/__getitem__/read_targets")
                 for step in range(1, max_lead_time + 1):
                     target_time = start_time + timedelta(hours = self.timedelta_hours * step)
                     raw_target_data = self._get_data(target_time, out = True)
@@ -601,8 +645,9 @@ class GetDataset(Dataset):
 
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
+                nvtx.range_pop()
 
-
+                nvtx.range_push("dataloader/__getitem__/normalize")
                 for step in range(0, max_lead_time):
                     targets_surface[step] = self.surface_transform(targets_surface[step])
                     targets_upper_air[step] = self.upper_air_transform(targets_upper_air[step])
@@ -611,25 +656,42 @@ class GetDataset(Dataset):
 
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
+                nvtx.range_pop()
 
                 targets_surface = torch.stack(targets_surface, dim=0)
                 targets_upper_air = torch.stack(targets_upper_air, dim=0)
                 if len(self.diagnostic_variables) > 0:
                     targets_diagnostic = torch.stack(targets_diagnostic, dim=0)
             else:
+                nvtx.range_push("dataloader/__getitem__/normalize")
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
+                nvtx.range_pop()
+
+            nvtx.range_pop()  # dataloader/__getitem__/validate
 
         else:
+            nvtx.range_push("dataloader/__getitem__/infer")
             start_time = self.start_date + timedelta(hours=self.dates[index])
+
+            nvtx.range_push("dataloader/__getitem__/read_input")
             data_in = self._get_data(start_time, out = False)
+            nvtx.range_pop()
+
+            nvtx.range_push("dataloader/__getitem__/reshape_mask")
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False) #Mahsa: switched surface and upper air- _reshape_and_mask_variables returns (upper_air, surface, varying_boundary)
                 varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
             else:
                 surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out=False)
+            nvtx.range_pop()
+
+            nvtx.range_push("dataloader/__getitem__/normalize")
             surface_t = self.surface_transform(surface_t)
             upper_air_t = self.upper_air_transform(upper_air_t)
+            nvtx.range_pop()
+
+            nvtx.range_pop()  # dataloader/__getitem__/infer
         if torch.any(torch.isnan(varying_boundary_data)):
             print('Boundary data has nan')
             sys.exit(2)
