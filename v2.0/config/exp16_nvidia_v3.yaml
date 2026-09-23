@@ -173,6 +173,43 @@ S2S: &S2S
   # dates as _common_init_dates in the offline CRPS/SSR benchmark config.
   pp_val_indices: [0, 1, 2, 3]
 
+  # ── Slow-surface SI (train_slow_surface_si.py) ─────────────────────────────
+  # Dedicated postprocessor for SST + skin/soil temperature + soil moisture.
+  # These drive S2S skill via slow boundary forcing and are poorly served by
+  # the joint 96-field model, which clamps lead conditioning at 10 steps and
+  # trains on land/ocean fill values.
+  # Names resolve against surface_variables first, then diagnostic_variables.
+  # total_precipitation_24hr is a diagnostic: it is corrected as a pure
+  # postprocess (never fed back into the rollout) and floored at 0 mm.
+  # Changing this list changes the UNet width, so an existing slow_si
+  # checkpoint cannot be resumed against a different list.
+  slow_fields: ['sea_surface_temperature', 'skin_temperature',
+                'soil_temperature_level_1', 'volumetric_soil_water_layer_1',
+                'total_precipitation_24hr']
+  # Smooth, few channels -> a much smaller UNet than the joint model's 34M.
+  slow_base_channels: 32
+  slow_c_mults: [1, 2, 4]
+  slow_scale: [2, 2]
+  slow_gamma_type: 'brownian'
+  slow_dropout: 0.1
+  slow_lr: 0.0002
+  slow_sample_steps: 20
+  # Lead conditioning spans the whole forecast, so day 1 and day 45 are
+  # distinguishable (the joint model clamped at 10 and drove day-1 SST SSR
+  # to 0.19 by smearing a long-lead correction across short leads).
+  slow_max_lead_steps: 45
+  # Residual weight; tune from validation. See slow_spread_boost for the
+  # dispersion knob -- draws come out correlated across members and act as a
+  # shared bias correction unless their deviation is re-inflated.
+  slow_blend: 1.0
+  slow_spread_boost: 0.0
+  slow_ckpt_freq: 200
+  slow_val_freq: 5000
+  slow_val_ics: 4
+  slow_val_members: 4
+  slow_val_lead_days: [1, 5, 10]
+  slow_val_indices: [0, 1, 2, 3]
+
   use_reentrant: False
   checkpointing: 2
   lat: [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5,

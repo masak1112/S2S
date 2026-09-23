@@ -55,5 +55,8 @@ python -m torch.distributed.launch --master_port=29505 --nproc_per_node=$NUM_TAS
 #     --no_correction \
 #     --save_vars $SAVE_VARS
 
+# Ablation (postprocess SI only, latent SI bypassed):
+#   see nvidia_brev_infer_postprocess_si_pponly.sh
+
 # Quick smoke test — 2019 only, 4 dates, 4 members:
 #   --years 2019 --max_dates 4 --num_members 4

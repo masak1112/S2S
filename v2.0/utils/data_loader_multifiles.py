@@ -119,23 +119,23 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
     else:
         return dataloader, dataset, sampler
 
-def get_initialization_dates(year):
+def get_initialization_dates(year, start_month=1, end_month=4):
     """
-    Get initialization dates (Calendar dates corresponding to 
-    Mondays and Thursdays of 2024 May-July) for a given year.
+    Get initialization dates (Calendar dates corresponding to
+    Mondays and Thursdays) for a given year, restricted to the
+    May-July season by default.
     """
-    # Define date range from May 1 to July 31 of 2024 (template)
-    start_date = datetime.datetime(2024, 5, 1)
-    end_date = datetime.datetime(2024, 7, 31)
-    date_range = pd.date_range(start_date, end_date, freq='D')
-    
+    # Walk the whole year and mask down to the requested months, so the last
+    # day of end_month needs no leap-year special case.
+    date_range = pd.date_range(datetime.datetime(year, 1, 1),
+                               datetime.datetime(year, 12, 31), freq='D')
+    in_season = (date_range.month >= start_month) & (date_range.month <= end_month)
+
     # Find Mondays (weekday=0) and Thursdays (weekday=3)
     is_monday = date_range.weekday == 0
     is_thursday = date_range.weekday == 3
-    filtered_dates = date_range[is_monday | is_thursday]
-    
-    # Convert to the requested year
-    filtered_dates_yr = pd.to_datetime(filtered_dates.strftime(f'{year}-%m-%d'))
+    filtered_dates_yr = date_range[(is_monday | is_thursday) & in_season]
+
     return filtered_dates_yr
 
 class GetDataset(Dataset):

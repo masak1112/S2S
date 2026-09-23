@@ -462,8 +462,22 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                    temperature: float = 1.5,
                    mc_dropout: bool = False,
                    use_gaussian_latent: bool = False,
-                   gaussian_latent_std: float = 1.0):
-        
+                   gaussian_latent_std: float = 1.0,
+                   deterministic_latent: bool = False,
+                   latent_cond: str = 'sst'):
+        """One base-model step.
+
+        latent_cond: what the latent-space SI UNet is conditioned on through its
+            cross-attention branch. 'sst' (default, matches training) uses the
+            VAE encoding of the SST surface component (params.component).
+            'off' replaces that encoding with zeros, so the SI still perturbs
+            the Pangu latent but receives no SST information — an ablation of
+            the SST conditioning only; the latent state-conditioning
+            (x_pangu concatenated to the UNet input) is untouched.
+        """
+        if latent_cond not in ('sst', 'off'):
+            raise ValueError(f"latent_cond must be 'sst' or 'off', got {latent_cond!r}")
+
         if seed is not None:
             torch.manual_seed(seed)
             torch.cuda.manual_seed_all(seed)
@@ -481,6 +495,11 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         #######VAE ENCODER START ########
 
         z  = self._encode_vae(surface_in, upper_air_in)
+        if latent_cond == 'off':
+            # Ablation: drop the SST conditioning. Same shape as the trained
+            # condition so the UNet's cond projections / GroupNorm still run
+            # (GroupNorm of an all-zero map is zero, so this is finite).
+            z = torch.zeros_like(z)
 
         # Enable Pangu dropout for MC dropout inference (parameters stay frozen).
         if mc_dropout:
@@ -499,7 +518,13 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # Can be overridden via config source_sigma for tuning.
         source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
 
-        if use_gaussian_latent:
+        if deterministic_latent:
+            # Ablation bypass: skip the SI entirely and pass the Pangu
+            # deterministic latent through unchanged. With mc_dropout=False the
+            # whole base step is then deterministic, so any ensemble spread has
+            # to come from elsewhere (e.g. the output-space postprocess SI).
+            x_si = x.repeat_interleave(num_samples, dim=0)
+        elif use_gaussian_latent:
             # Diagnostic bypass: skip the SI entirely and perturb the Pangu
             # deterministic latent with isotropic Gaussian noise. If this produces
             # more spread than the SI, it means the SI is failing to generate

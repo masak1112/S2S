@@ -19,6 +19,26 @@ a correction it was never trained to iterate on. ``--feedback corrected``
 enables the alternative if you want the perturbation to influence the
 trajectory.
 
+Ablation: postprocess SI only
+-----------------------------
+``--base_latent deterministic`` bypasses the base model's latent-space SI
+(no noise is drawn around the Pangu latent) and, unless ``--mc_dropout on``
+is given, also disables MC dropout. Every member then starts from the same
+deterministic base trajectory and *all* ensemble spread comes from the
+postprocess SI draws. Because that trajectory is identical for every member
+(with ``--feedback base``), it is rolled out once per init date and shared,
+so the run costs roughly one member's worth of base-model work per date.
+
+Compare three runs to isolate the contributions:
+    latent SI + postprocess SI   (default)
+    latent SI only               (--no_correction)
+    postprocess SI only          (--base_latent deterministic)
+    latent SI w/o SST cond. + postprocess SI   (--latent_cond off)
+
+``--latent_cond off`` keeps the latent-space SI sampling but zeroes the VAE
+encoding of the SST component that its UNet cross-attends to, so the latent
+perturbation is no longer informed by SST.
+
 Usage:
     python inference_postprocess_si.py \
         --yaml_config config/exp16_nvidia_v3.yaml --config S2S \
@@ -65,13 +85,50 @@ class PostprocessInference(Trainer):
                  num_members: int = 40, blend: float = 1.0,
                  feedback: str = 'base', apply_correction: bool = True,
                  years: list | None = None, max_dates: int | None = None,
-                 save_vars: list | None = None, overwrite: bool = False):
+                 save_vars: list | None = None, overwrite: bool = False,
+                 base_latent: str = 'si', mc_dropout: bool | None = None,
+                 latent_cond: str = 'sst'):
         super().__init__(params, world_rank)
 
         self.num_members = int(num_members)
         self.blend = float(blend)
         self.feedback = feedback
         self.apply_correction = bool(apply_correction)
+
+        # How the base model produces its latent: 'si' samples the trained
+        # latent-space SI (normal operation); 'deterministic' passes the Pangu
+        # latent through untouched (ablation: postprocess SI is the only source
+        # of spread). MC dropout follows the config for 'si' and is off for
+        # 'deterministic' unless explicitly requested.
+        if base_latent not in ('si', 'deterministic'):
+            raise ValueError(f"base_latent must be 'si' or 'deterministic', got {base_latent!r}")
+        self.base_latent = base_latent
+        if mc_dropout is None:
+            mc_dropout = (bool(getattr(params, 'infer_mc_dropout', True))
+                          if base_latent == 'si' else False)
+        self.mc_dropout = bool(mc_dropout)
+        # Conditioning of the latent SI UNet: 'sst' (VAE encoding of the SST
+        # component, as trained) or 'off' (zeroed — ablation of the SST
+        # conditioning while the latent SI itself stays on). Ignored when
+        # base_latent == 'deterministic' since the SI is not run at all.
+        if latent_cond not in ('sst', 'off'):
+            raise ValueError(f"latent_cond must be 'sst' or 'off', got {latent_cond!r}")
+        self.latent_cond = latent_cond
+        self.base_temperature = float(getattr(params, 'base_temperature', 1.5))
+        # With no latent noise and no dropout the base step is a pure function
+        # of its input, so with --feedback base every member shares one base
+        # trajectory and it only needs to be rolled out once per init date.
+        self.share_base = (self.base_latent == 'deterministic'
+                           and not self.mc_dropout and self.feedback == 'base')
+        if world_rank == 0:
+            logging.info(
+                f"Base model: latent={self.base_latent}, latent_cond={self.latent_cond}, "
+                f"mc_dropout={self.mc_dropout}, "
+                f"temperature={self.base_temperature}, feedback={self.feedback}"
+                + (", shared base trajectory across members" if self.share_base else ""))
+            if self.base_latent == 'deterministic' and not self.apply_correction:
+                logging.warning("--base_latent deterministic with --no_correction: "
+                                "all members will be identical.")
         self.years = set(years) if years else None
         self.max_dates = max_dates
         # Variables written to disk. All 16 variables at 45 steps is ~1.1 GB
@@ -343,6 +400,46 @@ class PostprocessInference(Trainer):
         return keep
 
     # ------------------------------------------------------------------
+    # Base model step
+    # ------------------------------------------------------------------
+
+    @torch.no_grad()
+    def _base_step(self, s_cur, ua_cur, cb, vbc_step):
+        """One base-model step in normalised space -> (sfc, ua, diag)."""
+        return self.diff_model.prediction(
+            surface_in=s_cur,
+            constant_boundary=cb,
+            varying_boundary=vbc_step,
+            upper_air_in=ua_cur,
+            num_samples=1,
+            device=self.device,
+            temperature=self.base_temperature,
+            mc_dropout=self.mc_dropout,
+            deterministic_latent=(self.base_latent == 'deterministic'),
+            latent_cond=self.latent_cond,
+        )
+
+    @torch.no_grad()
+    def _rollout_base(self, in_sfc0, in_ua0, cb, vbc, steps):
+        """Full deterministic base rollout, one (sfc, ua, diag) tuple per step.
+
+        Only valid when self.share_base: the trajectory is then identical for
+        every member, so it is computed once per init date. Tensors are parked
+        on the CPU so 45 steps of upper-air fields do not sit on the GPU for the
+        whole member loop.
+        """
+        traj = []
+        s_cur, ua_cur = in_sfc0, in_ua0
+        for step in range(steps):
+            p_sfc, p_ua, p_diag = self._base_step(s_cur, ua_cur, cb, vbc[:, step])
+            traj.append((p_sfc.cpu(), p_ua.cpu(),
+                         p_diag.cpu() if p_diag is not None else None))
+            s_cur, ua_cur = p_sfc, p_ua
+        logging.info(f"rank {world_rank}: shared base trajectory computed "
+                     f"({steps} steps)")
+        return traj
+
+    # ------------------------------------------------------------------
     # Inference loop
     # ------------------------------------------------------------------
 
@@ -399,6 +496,7 @@ class PostprocessInference(Trainer):
 
             B = in_sfc0.shape[0]
             cb = self.constant_boundary_data[:B]
+            base_traj = None  # filled lazily when self.share_base
 
             for ens_id in my_members:
                 # Resume support: a member already written by an earlier run is
@@ -437,16 +535,18 @@ class PostprocessInference(Trainer):
                 s_cur, ua_cur = in_sfc0, in_ua0
 
                 for step in range(steps):
-                    p_sfc, p_ua, p_diag = self.diff_model.prediction(
-                        surface_in=s_cur,
-                        constant_boundary=cb,
-                        varying_boundary=vbc[:, step],
-                        upper_air_in=ua_cur,
-                        num_samples=1,
-                        device=self.device,
-                        temperature=float(getattr(self.params, 'base_temperature', 1.5)),
-                        mc_dropout=bool(getattr(self.params, 'infer_mc_dropout', True)),
-                    )
+                    if self.share_base:
+                        # Deterministic base: roll out once per date, reuse
+                        # for every member. The per-member seed above still
+                        # governs the postprocess-SI draws below.
+                        if base_traj is None:
+                            base_traj = self._rollout_base(in_sfc0, in_ua0, cb, vbc, steps)
+                        p_sfc, p_ua, p_diag = (
+                            t.to(self.device, non_blocking=True) if t is not None else None
+                            for t in base_traj[step])
+                    else:
+                        p_sfc, p_ua, p_diag = self._base_step(
+                            s_cur, ua_cur, cb, vbc[:, step])
 
                     # Correct in normalised space, before inv_transform.
                     c_sfc, c_ua, c_diag = self._apply_correction(
@@ -541,7 +641,9 @@ class PostprocessInference(Trainer):
                 data_vars=dict(), coords=coordinates,
                 attrs=dict(description=(
                     f"Prediction from {self.params.nettype} run {self.params.run_num} "
-                    f"({tag}, blend={self.blend}, feedback={self.feedback})")))
+                    f"({tag}, blend={self.blend}, feedback={self.feedback}, "
+                    f"base_latent={self.base_latent}, latent_cond={self.latent_cond}, "
+                    f"mc_dropout={self.mc_dropout})")))
             dataset["level"].attrs['axis'] = 'Z'
             dataset['latitude'].attrs['axis'] = 'Y'
             dataset['longitude'].attrs['axis'] = 'X'
@@ -612,6 +714,22 @@ if __name__ == '__main__':
     parser.add_argument('--no_correction', action='store_true',
                         help='Run base-model inference only — the control run to '
                              'compare corrected output against.')
+    parser.add_argument('--base_latent', default='si', choices=('si', 'deterministic'),
+                        help="'si' (default) samples the latent-space SI in the base "
+                             "model. 'deterministic' bypasses it (Pangu latent passed "
+                             "through unperturbed) so the postprocess SI is the only "
+                             "source of spread — the ablation run.")
+    parser.add_argument('--latent_cond', default='sst', choices=('sst', 'off'),
+                        help="Conditioning of the latent-space SI UNet. 'sst' "
+                             "(default) cross-attends to the VAE encoding of the "
+                             "SST component as in training. 'off' zeroes that "
+                             "encoding so the latent SI runs without SST "
+                             "information — the SST-conditioning ablation. Only "
+                             "meaningful with --base_latent si.")
+    parser.add_argument('--mc_dropout', default=None, choices=('on', 'off'),
+                        help='Force MC dropout in the base model on or off. Default: '
+                             "params.infer_mc_dropout for --base_latent si, off for "
+                             "--base_latent deterministic.")
     parser.add_argument('--years', default=None, type=int, nargs='+',
                         help='Restrict sel_dates to these init years (default: all).')
     parser.add_argument('--max_dates', default=None, type=int,
@@ -683,6 +801,9 @@ if __name__ == '__main__':
         max_dates=args.max_dates,
         save_vars=args.save_vars,
         overwrite=args.overwrite,
+        base_latent=args.base_latent,
+        mc_dropout=(None if args.mc_dropout is None else args.mc_dropout == 'on'),
+        latent_cond=args.latent_cond,
     )
     runner.predict()
     logging.info('Postprocess-SI inference DONE — rank %d' % world_rank)
