@@ -701,6 +701,12 @@ if __name__ == '__main__':
     parser.add_argument('--local-rank', type=int)
     parser.add_argument('--pp_ckpt', default=None, type=str,
                         help='Trained postprocess-SI checkpoint.')
+    parser.add_argument('--base_ckpt', default=None, type=str,
+                        help='Full-state base-model checkpoint (encoder + decoder + latent-SI '
+                             'UNet), e.g. a rollout_ckpt_*.tar from train_finetune_rollout.py. '
+                             'Overrides params.checkpoint_path_finetuned, which otherwise selects '
+                             'the base model. Loaded last with strict=False, so its UNet and '
+                             'decoder win over checkpoint_path_det.')
     parser.add_argument('--num_members', default=40, type=int,
                         help='Ensemble size; sharded across ranks.')
     parser.add_argument('--inference_steps', default=None, type=int,
@@ -755,6 +761,11 @@ if __name__ == '__main__':
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
     params['log_to_wandb'] = False
+
+    if args.base_ckpt:
+        if not os.path.isfile(args.base_ckpt):
+            raise FileNotFoundError(f"--base_ckpt not found: {args.base_ckpt}")
+        params['checkpoint_path_finetuned'] = os.path.abspath(args.base_ckpt)
 
     if args.inference_steps is not None:
         params['inference_steps'] = args.inference_steps

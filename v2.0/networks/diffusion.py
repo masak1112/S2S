@@ -160,7 +160,8 @@ class PreNorm(nn.Module):
 
 class CrossAttentionConditionFuse(nn.Module):
     """Fuse conditioning feature maps into model activations with pooled cross-attention."""
-    def __init__(self, dim_x, dim_cond, heads=4, dim_head=32, pool_size=(8, 8)):
+    def __init__(self, dim_x, dim_cond, heads=4, dim_head=32, pool_size=(8, 8),
+                 gate_init=0.0):
         super().__init__()
         inner_dim = heads * dim_head
         self.heads = heads
@@ -174,7 +175,11 @@ class CrossAttentionConditionFuse(nn.Module):
         self.to_out = nn.Conv2d(inner_dim, dim_x, kernel_size=1)
         self.norm_x = nn.GroupNorm(1, dim_x)
         self.norm_c = nn.GroupNorm(1, dim_cond)
-        self.gate = nn.Parameter(torch.tensor(0.0))
+        # gate_init=0 makes the branch a no-op at start AND gives to_out zero
+        # gradient; with Adam + coupled weight decay the whole branch then
+        # decays to denormals (seen in si_c1 / si_c1_full_state). Use a small
+        # non-zero init (cross_attn_gate_init) when the conditioning matters.
+        self.gate = nn.Parameter(torch.tensor(float(gate_init)))
 
     def forward(self, x, cond):
         b, _, h, w = x.shape
@@ -206,7 +211,7 @@ class ConUNet_1degV2(nn.Module):
     def __init__(self, dim_in, dim_cond, dim_out, c, c_mults=(1, 2, 4, 8),
                     resnet_block_groups=4, scale = [2,2,2],
                     is_guide=False, drop_prob=0.1, dropout=0.1,
-                    checkpointing=0, use_reentrant=False):
+                    checkpointing=0, use_reentrant=False, gate_init=0.0):
         super().__init__()
 
         self.checkpointing = checkpointing
@@ -267,9 +272,11 @@ class ConUNet_1degV2(nn.Module):
         self.final_res_block = block_klass(c * 2, c, time_emb_dim=time_dim)
         self.final_conv = nn.Conv2d(c, dim_out, 1)
         self.cond_to_c = nn.Conv2d(dim_cond, c, kernel_size=1)
-        self.cross_attn_in = CrossAttentionConditionFuse(dim_x=c, dim_cond=c, heads=4, dim_head=32, pool_size=(8, 8))
+        self.cross_attn_in = CrossAttentionConditionFuse(dim_x=c, dim_cond=c, heads=4, dim_head=32, pool_size=(8, 8),
+                                                         gate_init=gate_init)
         self.cond_to_mid = nn.Conv2d(c, mid_dim, kernel_size=1)
-        self.cross_attn_mid = CrossAttentionConditionFuse(dim_x=mid_dim, dim_cond=mid_dim, heads=4, dim_head=32, pool_size=(8, 8))
+        self.cross_attn_mid = CrossAttentionConditionFuse(dim_x=mid_dim, dim_cond=mid_dim, heads=4, dim_head=32, pool_size=(8, 8),
+                                                          gate_init=gate_init)
 
 
     def _maybe_checkpoint(self, block, x, t):
@@ -628,6 +635,17 @@ class DDIMScheduler:
 # Combined model + training step
 # ---------------------------------------------------------------------------
 
+# Parameters of the UNet that carry the (SST) conditioning into the drift:
+# cond projection, the two cross-attention fuses and their gates. Used to give
+# them their own optimizer group and to re-initialise them on a warm start.
+COND_BRANCH_MARKERS = ('cross_attn_in.', 'cross_attn_mid.', 'cond_to_c.', 'cond_to_mid.')
+
+
+def is_cond_branch_param(name: str) -> bool:
+    """True for a state_dict / named_parameters key of the conditioning branch."""
+    return any(m in name for m in COND_BRANCH_MARKERS)
+
+
 class ConditionalDiffusionModel(nn.Module):
     """
     Full pipeline:
@@ -672,7 +690,15 @@ class ConditionalDiffusionModel(nn.Module):
         self.unet = ConUNet_1degV2(dim_in =20, dim_cond=2, dim_out=10, c = 64,
                                    c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4,
                                    checkpointing=getattr(params, 'checkpointing', 0),
-                                   use_reentrant=getattr(params, 'use_reentrant', False))
+                                   use_reentrant=getattr(params, 'use_reentrant', False),
+                                   gate_init=float(getattr(params, 'cross_attn_gate_init', 0.0)))
+        # 'sample' (default, legacy): z is a reparameterised draw from the VAE
+        # posterior, redrawn on every call. For the c1 SST VAE the posterior
+        # std (~0.86) dwarfs the across-date variation of the mean (~0.03), so
+        # the draw is ~97% noise. 'mean' conditions on the posterior mean.
+        self.vae_cond_mode = str(getattr(params, 'vae_cond_mode', 'sample'))
+        if self.vae_cond_mode not in ('sample', 'mean'):
+            raise ValueError(f"vae_cond_mode must be 'sample' or 'mean', got {self.vae_cond_mode!r}")
 
         self.scheduler_diff = DDPMScheduler(T=T)
         self.scheduler_ddim = DDIMScheduler(
@@ -740,7 +766,8 @@ class ConditionalDiffusionModel(nn.Module):
         """Stochastic VAE encoding -> latent z."""
         x = self.encoder._select_surface_component(surface) 
         z, mean, logvar = self.encoder.encode(x)  #1, 2, 23, 45
-       
+        if self.vae_cond_mode == 'mean':
+            return mean
         return z
 
     def _encode_det(
@@ -832,6 +859,7 @@ class ConditionalDiffusionModel(nn.Module):
 
         # Sample timestep and forward-diffuse x
         t = torch.randint(0, self.scheduler_diff.T, (B,), device=device)
+        
         x_t, noise = self.scheduler_diff.q_sample(x, t)
 
         # Predict and score noise

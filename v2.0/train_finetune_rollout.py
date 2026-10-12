@@ -469,7 +469,7 @@ class RolloutFinetuner(Trainer):
                         'lr': self.optimizer.param_groups[0]['lr'],
                     }, step=self.iters)
 
-                if self.iters % 200 == 0:
+                if self.iters % 50 == 0:
                     self._save(f"rollout_ckpt_{self.iters}.tar")
 
         return {'train_crps_loss': loss_val, 'epoch': self.epoch}

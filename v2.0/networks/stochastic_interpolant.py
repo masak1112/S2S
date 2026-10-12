@@ -214,6 +214,37 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         return loss
 
+    @torch.no_grad()
+    def cond_sensitivity(self, surface_in, constant_boundary, varying_boundary,
+                         upper_air_in) -> dict:
+        """How much the conditioning z changes the drift on this batch.
+
+        Returns cond_rel_effect = ||drift(z) - drift(0)|| / ||drift(z)|| at
+        t=0.5 plus the raw gate / to_out magnitudes of both fuses. In the
+        si_c1 checkpoints these are all ~0; a healthy SST-conditioned SI should
+        show a clearly non-zero effect within the first few thousand iters.
+        """
+        surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
+        z = self._encode_vae(surface, upper_air_in)
+        x, _ = self._encode_det(surface, upper_air_in, train=False)
+        B, device = x.size(0), x.device
+        ts = torch.full((B,), 0.5, device=device)
+        base = self.sample_from_source(x, n_samples=B, reparam=True, sigma=x.std().item())
+        inp = torch.cat([self.I(x0=base, x1=x, t=ts), x], dim=1)
+        was_training = self.unet.training
+        self.unet.eval()
+        d_z = self.unet(inp, z, ts).float()
+        d_0 = self.unet(inp, torch.zeros_like(z), ts).float()
+        if was_training:
+            self.unet.train()
+        out = {'cond_rel_effect': ((d_z - d_0).norm() / d_z.norm().clamp_min(1e-12)).item(),
+               'cond_z_absmean': z.float().abs().mean().item()}
+        for name in ('cross_attn_in', 'cross_attn_mid'):
+            fuse = getattr(self.unet, name)
+            out[f'{name}_gate'] = fuse.gate.item()
+            out[f'{name}_to_out_absmax'] = fuse.to_out.weight.abs().max().item()
+        return out
+
     def _plot_scatter(self, pred: torch.Tensor, target: torch.Tensor,
                       iter: int = 0, save_path: str = "scatter_pred_gt.png",
                       max_points: int = 4096) -> None:

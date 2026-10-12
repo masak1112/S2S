@@ -65,7 +65,7 @@ S2S: &S2S
               'sea_ice_cover': 0.,
               'snow_depth': 0.}
   mask_output: False
-  train_year_start: 1984
+  train_year_start: 1979
   train_year_end: 2018
   val_year_start: 2018
   val_year_end: 2019

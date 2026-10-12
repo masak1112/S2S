@@ -1,0 +1,9 @@
+# Task
+
+Add validation when doing fine-tune
+
+1. do validation every 200 steps
+2. only evauation 4 initial condition 
+3. The valiation metric is CRPS and SSR
+4. Using 4 samples to calcualte CRPS and SSR, with lead time of 1,5,10.
+5. Do the validation only for 2m temperature and precipitation and geopotentioanl 500

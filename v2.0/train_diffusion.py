@@ -10,7 +10,7 @@ from pathlib import Path
 import logging
 import time
 import torch
-from networks.diffusion import ConditionalDiffusionModel
+from networks.diffusion import ConditionalDiffusionModel, is_cond_branch_param
 from networks.stochastic_interpolant import StochasticInterpolant
 
 from train import Trainer
@@ -49,10 +49,20 @@ class DiffusionTrainer(Trainer):
 
         self.diff_model= self.get_diffusion_model()
         self.temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
-        self.optimizer = torch.optim.Adam(self.diff_model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
+        self.optimizer = self._build_optimizer()
+        # Average UNet gradients across ranks. The SI model is not wrapped in
+        # DDP, so without this every rank trains its own copy on its own data
+        # shard and only rank 0's copy is ever saved.
+        self.sync_grads = bool(getattr(self.params, 'sync_grads', False)) and dist.is_initialized() \
+            and dist.get_world_size() > 1
+        self.cond_diag_freq = int(getattr(self.params, 'cond_diag_freq', 0))
+        init_ckpt = getattr(self.params, 'checkpoint_path_diff_init', None)
         if self.params.checkpoint_path_diff and os.path.isfile(self.params.checkpoint_path_diff):
             self.restore_diff_checkpoint(self.params.checkpoint_path_diff)
             self.setup_scheduler(restart=False)
+        elif init_ckpt and os.path.isfile(init_ckpt):
+            self._warm_start_from(init_ckpt)
+            self.setup_scheduler(restart=True)
         else:
             self.setup_scheduler(restart=True)
         # Explicitly ensure diff_model.encoder uses checkpoint_path_vae weights,
@@ -68,6 +78,85 @@ class DiffusionTrainer(Trainer):
             logging.warning("W&B logging is enabled in config, but wandb.init() is not active. Skipping wandb.log calls.")
         
  
+    def _build_optimizer(self):
+        """Adam over the SI model. If cond_branch_weight_decay or
+        cond_branch_lr_mult is set, the conditioning branch (cross-attention
+        fuses, gates, cond projections) gets its own param group so it can be
+        exempted from weight decay and/or given a larger lr. Otherwise a single
+        group, identical to the original runs (keeps their optimizer state
+        loadable)."""
+        wd_cond = getattr(self.params, 'cond_branch_weight_decay', None)
+        lr_mult = getattr(self.params, 'cond_branch_lr_mult', None)
+        if wd_cond is None and lr_mult is None:
+            return torch.optim.Adam(self.diff_model.parameters(), lr=self.params.lr,
+                                    weight_decay=self.params.weight_decay)
+        wd_cond = self.params.weight_decay if wd_cond is None else float(wd_cond)
+        lr_mult = 1.0 if lr_mult is None else float(lr_mult)
+        cond, rest = [], []
+        for name, p in self.diff_model.named_parameters():
+            if not p.requires_grad:
+                continue
+            (cond if is_cond_branch_param(name) else rest).append(p)
+        if self.world_rank == 0:
+            print(f"Optimizer: {sum(p.numel() for p in rest):,} params @ lr={self.params.lr}, "
+                  f"wd={self.params.weight_decay}; conditioning branch "
+                  f"{sum(p.numel() for p in cond):,} params @ lr={self.params.lr * lr_mult}, wd={wd_cond}")
+        return torch.optim.Adam([
+            {'params': rest, 'lr': self.params.lr, 'weight_decay': self.params.weight_decay},
+            {'params': cond, 'lr': self.params.lr * lr_mult, 'weight_decay': wd_cond},
+        ])
+
+    def _warm_start_from(self, path):
+        """Initialise the UNet from another run's checkpoint without resuming it.
+
+        Loads only UNet weights (encoder/model_det come from their own
+        checkpoints), skips the conditioning branch when reinit_cond_branch is
+        set (its weights in the si_c1 runs are denormals — worthless), and does
+        not touch the optimizer, iteration counter or epoch."""
+        checkpoint = torch.load(path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        raw_state = checkpoint['model_state']
+        if any(k.startswith('module.') for k in raw_state):
+            raw_state = OrderedDict((k[7:], v) for k, v in raw_state.items())
+        reinit = bool(getattr(self.params, 'reinit_cond_branch', True))
+        state, skipped = OrderedDict(), []
+        for k, v in raw_state.items():
+            if k.startswith('encoder.') or k.startswith('model_det.'):
+                continue
+            if reinit and is_cond_branch_param(k):
+                skipped.append(k)
+                continue
+            state[k] = v
+        missing, unexpected = self.diff_model.load_state_dict(state, strict=False)
+        bad_missing = [k for k in missing if not (k.startswith('encoder.') or k.startswith('model_det.'))
+                       and not (reinit and is_cond_branch_param(k))]
+        if bad_missing or unexpected:
+            raise RuntimeError(f"warm start: unexpected keys {unexpected}, missing {bad_missing}")
+        if self.world_rank == 0:
+            print(f"Warm start from {path} (iters={checkpoint.get('iters')}): loaded {len(state)} UNet tensors, "
+                  f"re-initialised {len(skipped)} conditioning-branch tensors "
+                  f"(gate_init={getattr(self.params, 'cross_attn_gate_init', 0.0)}, "
+                  f"vae_cond_mode={getattr(self.params, 'vae_cond_mode', 'sample')})")
+        self.iters, self.startEpoch, self.epoch = 0, 0, 0
+
+    def _log_cond_diagnostics(self, input_surface, varying_boundary_data, input_upper_air, loss=None):
+        # Runs in float32: under fp16 autocast the UNet output can overflow to
+        # inf on some batches (the same overflow the GradScaler skips), which
+        # turned the relative effect into NaN.
+        with torch.autocast(device_type='cuda', enabled=False):
+            d = self.diff_model.cond_sensitivity(surface_in=input_surface.float(),
+                                                 constant_boundary=self.constant_boundary_data.float(),
+                                                 varying_boundary=varying_boundary_data.float(),
+                                                 upper_air_in=input_upper_air.float())
+        if loss is not None:
+            d['train_loss'] = float(loss)
+        logging.info("cond diag iter %d: loss=%.4g  rel_effect=%.4f  gate_in=%.4g gate_mid=%.4g  "
+                     "to_out_in=%.3g to_out_mid=%.3g  |z|=%.3g" % (
+                         self.iters, d.get('train_loss', float('nan')), d['cond_rel_effect'],
+                         d['cross_attn_in_gate'], d['cross_attn_mid_gate'],
+                         d['cross_attn_in_to_out_absmax'], d['cross_attn_mid_to_out_absmax'], d['cond_z_absmean']))
+        if self.wandb_enabled:
+            wandb.log({f"cond/{k}": v for k, v in d.items()}, step=self.iters)
+
     def _reload_vae_checkpoint(self):
         """Explicitly load VAE and deterministic checkpoint weights into
         diff_model.encoder and diff_model.model_det respectively.
@@ -178,6 +267,18 @@ class DiffusionTrainer(Trainer):
                                                              plot_scatter = do_scatter, scatter_path = scatter_path)
 
                     self.scaler.scale(loss).backward()
+                    if self.sync_grads:
+                        # Average the still-SCALED grads BEFORE unscale_: the
+                        # scaler records found_inf during unscale_, so reducing
+                        # afterwards lets a rank with finite local grads apply
+                        # a step with inf pulled in from another rank (NaN
+                        # weights). Reducing first, every rank sees the same
+                        # grads, the same found_inf and the same scale history.
+                        ws = dist.get_world_size()
+                        for p in self.diff_model.parameters():
+                            if p.grad is not None:
+                                dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+                                p.grad.div_(ws)
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
                     scale_before = self.scaler.get_scale()
@@ -194,12 +295,15 @@ class DiffusionTrainer(Trainer):
                     diagnostic_logs = {"loss": loss, "lr": current_lr}
 
 
-                    if self.world_rank == 0:
-                        # print("wandb logging ")
+                    if self.world_rank == 0 and self.cond_diag_freq > 0 and self.iters % self.cond_diag_freq == 0:
+                        self._log_cond_diagnostics(input_surface, varying_boundary_data, input_upper_air,
+                                                   loss=loss.detach())
+
+                    if self.world_rank == 0 and self.wandb_enabled:
                         wandb.log(diagnostic_logs, step= self.iters)
                         if do_scatter and self.wandb_enabled and os.path.isfile(scatter_path):
                             wandb.log({"scatter_pred_vs_gt": wandb.Image(scatter_path)}, step=self.iters)
-                    if i >= 2000 and i % 2000 == 0:
+                    if i >= 2000 and i % 2000 == 0 and self.world_rank == 0:
                         temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
                         diff_path = os.path.join(temp_path, f"diff_ckpt_{self.iters}.tar")
                         last_path = os.path.join(temp_path, "last_ckpt.tar")
@@ -224,7 +328,9 @@ class DiffusionTrainer(Trainer):
             if self.world_rank == 0:
                 temp_path = os.path.split(self.params.checkpoint_path_diff)[0]
                 last_path = os.path.join(temp_path, "diff_ckpt.tar")
-                #self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
+                # Also write the resume file so an interruption before the
+                # first in-loop save (every 2000 iters) can still resume.
+                self.save_checkpoint(self.params.checkpoint_path_diff, self.diff_model)
                 self.save_checkpoint(last_path, self.diff_model)
                 logging.info("Saved latest checkpoint: %s", self.params.checkpoint_path_diff)
                 logging.info("Saved last checkpoint alias: %s", last_path)
