@@ -54,3 +54,5 @@ spectra_out/
 checkpoints/
 v2.0/HPC_scripts/*.out
 v2.0/HPC_scripts/*_log
+v2.0/HPC_scripts/*.log
+v2.0/HPC_scripts/*_log_*
