@@ -186,9 +186,50 @@ class VAE(nn.Module):
         self.encoder = Encoder(in_channels=1, base_channels=self.base_channels, z_channels=self.z_channels)
         self.decoder = Decoder(out_channels=1, base_channels=self.base_channels, z_channels=self.z_channels)
 
+        # SST-anomaly mode: the VAE encodes (sst - daily climatology) instead of
+        # the full standardized field. sst_clim_path is the [366, H, W] daily
+        # climatology in *standardized* units (see utils/make_sst_anom_clim.py),
+        # NaN over land. sst_anom_scale rescales the anomaly to ~unit variance.
+        self.anomaly = bool(getattr(params, 'sst_anomaly', False))
+        if self.anomaly:
+            clim = torch.from_numpy(np.load(params.sst_clim_path)).float()
+            valid = ~torch.isnan(clim)
+            # not persistent: rebuilt from the file, keeps checkpoints loadable
+            self.register_buffer('clim', torch.nan_to_num(clim, nan=0.0), persistent=False)
+            self.register_buffer('clim_valid', valid, persistent=False)
+            self.anom_scale = float(getattr(params, 'sst_anom_scale', 1.0))
+
+    def _doy_index(self, date):
+        """date: [B, >=3] (year, month, day, ...) -> 0-based index into the 366-day climatology."""
+        cum = torch.tensor([0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334], device=date.device)
+        year, month, day = date[:, 0].long(), date[:, 1].long(), date[:, 2].long()
+        leap = ((year % 4 == 0) & (year % 100 != 0)) | (year % 400 == 0)
+        # dayofyear convention: Feb 29 is 60, so Mar 1+ shifts by one in leap years
+        doy = cum[month - 1] + day + (leap & (month > 2)).long()
+        return doy - 1
+
+    def prepare_input(self, surface_in, date=None):
+        """Select the SST channel and, in anomaly mode, convert it to a masked anomaly.
+
+        Returns (x, valid): valid is a [B,1,H,W] ocean mask (all True when not in
+        anomaly mode). Land points of the anomaly are exactly 0.
+        """
+        x = self._select_surface_component(surface_in)
+        if not self.anomaly:
+            return x, torch.ones_like(x, dtype=torch.bool)
+        if date is None:
+            raise ValueError("sst_anomaly=True requires the sample date (year, month, day, hour)")
+        idx = self._doy_index(date.to(x.device))
+        clim = self.clim[idx].unsqueeze(1).to(x.dtype)
+        valid = self.clim_valid[idx].unsqueeze(1)
+        anom = (x - clim) * valid / self.anom_scale
+        return anom, valid
+
     def _select_surface_component(self, surface_in):
         if surface_in.ndim != 4:
             raise ValueError(f"Expected surface input with shape [B, C, H, W], got {tuple(surface_in.shape)}")
+        if surface_in.shape[1] == 1:   # SST-only input from utils/sst_loader.py
+            return surface_in
         if self.component < 0 or self.component >= surface_in.shape[1]:
             raise ValueError(
                 f"Requested component index {self.component}, but surface input only has {surface_in.shape[1]} channels"
@@ -221,9 +262,10 @@ class VAE(nn.Module):
         varying_boundary=None,
         upper_air_in=None,
         train=False,
+        date=None,
     ):
         #print("Input surface shape:", surface_in.shape)
-        x = self._select_surface_component(surface_in) # 2,1 180, 360
+        x, _ = self.prepare_input(surface_in, date) # 2,1 180, 360
         z, mean, logvar = self.encode(x) #2, 2, 23, 45
         x_recon = self.decode(z, target_shape=x.shape[-2:])
         return x_recon, mean, logvar
