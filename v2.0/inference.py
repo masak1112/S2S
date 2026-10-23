@@ -9,6 +9,7 @@ from collections import OrderedDict
 import wandb
 from utils.data_loader_multifiles import get_data_loader, get_infer_data
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 import os, shutil
 import time
 import numpy as np
@@ -349,6 +350,7 @@ class Stepper(Trainer):
                 # Host->device once per batch (not once per member): the 50 ensemble
                 # members all start from the same IC, so re-uploading it 50x was pure
                 # overhead. Each member clones the GPU copy instead.
+                data, sst_cond_batch = pop_sst_cond(data, self.params, self.device)
                 val_input_surface_batch, val_input_upper_air_batch, _, _, _, val_varying_boundary_data_batch, times = map(
                         lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
@@ -406,7 +408,8 @@ class Stepper(Trainer):
                                                                     upper_air_in=val_input_upper_air, device=self.device,
                                                                     mc_dropout=True, temperature=temperature,
                                                                     use_gaussian_latent=(use_gaussian_latent and ens_id > 0),
-                                                                    gaussian_latent_std=gaussian_latent_std)
+                                                                    gaussian_latent_std=gaussian_latent_std,
+                                                                    sst_cond=sst_cond_batch)
 
                         # Approach 2: per-step additive state noise with amplitude that grows with lead time.
                         # Constant noise reaches an equilibrium with the model's attractor and spread plateaus;

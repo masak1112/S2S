@@ -144,7 +144,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                       upper_air_in, target_surface_in=None, target_upper_air=None,
                       train = True, plot_freq = 0,
                       plot_path = "noise_comparison.png", iter=0, lower_upper: tuple = (0.0001, 0.9999),
-                      plot_scatter: bool = False, scatter_path: str = "scatter_pred_gt.png"):
+                      plot_scatter: bool = False, scatter_path: str = "scatter_pred_gt.png",
+                      sst_cond: torch.Tensor = None):
 
         """Single diffusion training step. Returns RMSE loss.
 
@@ -167,7 +168,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         ts  = lower + (upper - lower)*torch.rand(size=(B,), device=device)
 
         # Encode stochastic condition (VAE) and deterministic features
-        z = self._encode_vae(surface, upper_air_in)
+        z = self._encode_vae(surface, upper_air_in, sst_cond)
         x, skip = self._encode_det(surface, upper_air_in, train=True)
 
         # Ground-truth t+1 latent, encoded through the same frozen Pangu path.
@@ -216,7 +217,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
     @torch.no_grad()
     def cond_sensitivity(self, surface_in, constant_boundary, varying_boundary,
-                         upper_air_in) -> dict:
+                         upper_air_in, sst_cond=None) -> dict:
         """How much the conditioning z changes the drift on this batch.
 
         Returns cond_rel_effect = ||drift(z) - drift(0)|| / ||drift(z)|| at
@@ -225,7 +226,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         show a clearly non-zero effect within the first few thousand iters.
         """
         surface = self._prepare_surface(surface_in, constant_boundary, varying_boundary)
-        z = self._encode_vae(surface, upper_air_in)
+        z = self._encode_vae(surface, upper_air_in, sst_cond)
         x, _ = self._encode_det(surface, upper_air_in, train=False)
         B, device = x.size(0), x.device
         ts = torch.full((B,), 0.5, device=device)
@@ -395,7 +396,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
     def crps_finetune_step(self, surface_in, constant_boundary, varying_boundary,
                            upper_air_in, target_surface, target_upper_air,
-                           latitudes, num_samples: int = 2, target_diagnostic=None):
+                           latitudes, num_samples: int = 2, target_diagnostic=None,
+                           sst_cond=None):
         """Generate num_samples ensemble members and compute CRPS loss in output space.
 
         SI/UNet and encoders stay frozen (no_grad). Only the Pangu decoder
@@ -409,7 +411,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         # Encode — all frozen, no grad needed through SI
         with torch.no_grad():
-            z = self._encode_vae(surface, upper_air_in)
+            z = self._encode_vae(surface, upper_air_in, sst_cond)
             x, skip = self._encode_det(surface, upper_air_in, train=False)
             # x: [B, Pl, seq, embed*scale], skip: [B, seq, embed]
             Pl_det = x.shape[1]
@@ -495,7 +497,8 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                    use_gaussian_latent: bool = False,
                    gaussian_latent_std: float = 1.0,
                    deterministic_latent: bool = False,
-                   latent_cond: str = 'sst'):
+                   latent_cond: str = 'sst',
+                   sst_cond: torch.Tensor = None):
         """One base-model step.
 
         latent_cond: what the latent-space SI UNet is conditioned on through its
@@ -525,7 +528,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # 1. Encode condition
         #######VAE ENCODER START ########
 
-        z  = self._encode_vae(surface_in, upper_air_in)
+        z  = self._encode_vae(surface_in, upper_air_in, sst_cond)
         if latent_cond == 'off':
             # Ablation: drop the SST conditioning. Same shape as the trained
             # condition so the UNet's cond projections / GroupNorm still run

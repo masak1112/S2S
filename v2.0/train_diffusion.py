@@ -138,7 +138,8 @@ class DiffusionTrainer(Trainer):
                   f"vae_cond_mode={getattr(self.params, 'vae_cond_mode', 'sample')})")
         self.iters, self.startEpoch, self.epoch = 0, 0, 0
 
-    def _log_cond_diagnostics(self, input_surface, varying_boundary_data, input_upper_air, loss=None):
+    def _log_cond_diagnostics(self, input_surface, varying_boundary_data, input_upper_air, loss=None,
+                              sst_cond=None):
         # Runs in float32: under fp16 autocast the UNet output can overflow to
         # inf on some batches (the same overflow the GradScaler skips), which
         # turned the relative effect into NaN.
@@ -146,7 +147,8 @@ class DiffusionTrainer(Trainer):
             d = self.diff_model.cond_sensitivity(surface_in=input_surface.float(),
                                                  constant_boundary=self.constant_boundary_data.float(),
                                                  varying_boundary=varying_boundary_data.float(),
-                                                 upper_air_in=input_upper_air.float())
+                                                 upper_air_in=input_upper_air.float(),
+                                                 sst_cond=sst_cond)
         if loss is not None:
             d['train_loss'] = float(loss)
         logging.info("cond diag iter %d: loss=%.4g  rel_effect=%.4f  gate_in=%.4g gate_mid=%.4g  "
@@ -264,7 +266,8 @@ class DiffusionTrainer(Trainer):
                                                              target_surface_in = target_surface,
                                                              target_upper_air = target_upper_air,
                                                              plot_freq = 200, iter = self.iters,
-                                                             plot_scatter = do_scatter, scatter_path = scatter_path)
+                                                             plot_scatter = do_scatter, scatter_path = scatter_path,
+                                                             sst_cond = self.sst_cond_batch)
 
                     self.scaler.scale(loss).backward()
                     if self.sync_grads:
@@ -297,7 +300,7 @@ class DiffusionTrainer(Trainer):
 
                     if self.world_rank == 0 and self.cond_diag_freq > 0 and self.iters % self.cond_diag_freq == 0:
                         self._log_cond_diagnostics(input_surface, varying_boundary_data, input_upper_air,
-                                                   loss=loss.detach())
+                                                   loss=loss.detach(), sst_cond=self.sst_cond_batch)
 
                     if self.world_rank == 0 and self.wandb_enabled:
                         wandb.log(diagnostic_logs, step= self.iters)
@@ -381,6 +384,7 @@ class DiffusionTrainer(Trainer):
                         train=False,
                         plot_freq=0,
                         iter=self.iters,
+                        sst_cond=self.sst_cond_batch,
                     )
 
                 loss_sum += val_loss.detach().float()

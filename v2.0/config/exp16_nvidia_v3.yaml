@@ -300,3 +300,29 @@ S2S_SSTCOND: &S2S_SSTCOND
   # Trained checkpoints from the original run are in checkpoint_path_diff_init;
   # postprocess-SI/inference for THIS model must not load checkpoint_path_finetuned
   # (its UNet would overwrite the new one) — see the run script.
+
+
+# ── Latent SI conditioned on the PERSISTENT SST ANOMALY (no VAE) ─────────────
+# Same as S2S_SSTCOND except the cross-attention conditioning z is no longer the
+# SST-VAE encoding. The dataloader builds it once from the initial condition
+#   ch0: (SST_ic - daily clim[doy]) / sst_anom_scale, land = 0
+#   ch1: ocean fraction
+# interpolated 180x360 -> sst_cond_size (masked bilinear, antialiased), and the
+# same map is held fixed over the whole rollout (persistence). dim_cond stays 2,
+# so UNet shapes are unchanged. Launched by HPC_scripts/nvidia_brev_train_si_sstanom.sh.
+S2S_SSTANOM: &S2S_SSTANOM
+  <<: *S2S_SSTCOND
+  data_dir: '/project/pedramh/h5data/h5data'   # h5 files + mean/std .nc
+  sst_cond_anom: True
+  sst_clim_path: '/project/pedramh/bing/S2S/v2.0/clim_00z/clim_00z_sst_std.npy'   # [366,180,360], standardized, NaN=land
+  sst_anom_scale: 0.0583        # from config/exp17_anom.yaml; re-estimate if the std files change
+  sst_cond_size: [23, 45]
+  checkpoint_path_vae_c1: "/project/pedramh/bing/checkpoints_UC-S2S_V2/loaded/1_vae_c1/ckpt.tar"   # still loaded (frozen), not used for conditioning
+  checkpoint_path_det: "/project/pedramh/bing/checkpoints_UC-S2S_V2/loaded/2_pangu_deterministic/ckpt.tar"
+  checkpoint_path_diff_init: "/project/pedramh/bing/checkpoints_UC-S2S_V2/fallback_not_loaded/latent_si_c1_full_state/last_ckpt.tar"
+  # New run output (resumes from last_ckpt.tar if present).
+  checkpoint_path_diff: "/project/pedramh/bing/S2S/v2.0/HPC_scripts/results/S2S_SSTANOM/si_c1_sstanom/training_checkpoints/last_ckpt.tar"
+  # Base model for the postprocess-SI stage = output of the rollout finetune of THIS
+  # SI (HPC_scripts/midway_train_sstanom_pipeline.sh, stage 2). It overrides the
+  # inherited BASE value, which would otherwise load an old UNet over the new one.
+  checkpoint_path_finetuned: "/project/pedramh/bing/S2S/v2.0/HPC_scripts/results/S2S_SSTANOM/rollout_finetune_rollout_sstanom/training_checkpoints/rollout_last.tar"

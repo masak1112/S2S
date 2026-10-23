@@ -696,6 +696,7 @@ class ConditionalDiffusionModel(nn.Module):
         # posterior, redrawn on every call. For the c1 SST VAE the posterior
         # std (~0.86) dwarfs the across-date variation of the mean (~0.03), so
         # the draw is ~97% noise. 'mean' conditions on the posterior mean.
+        self.sst_cond_anom = bool(getattr(params, 'sst_cond_anom', False))
         self.vae_cond_mode = str(getattr(params, 'vae_cond_mode', 'sample'))
         if self.vae_cond_mode not in ('sample', 'mean'):
             raise ValueError(f"vae_cond_mode must be 'sample' or 'mean', got {self.vae_cond_mode!r}")
@@ -761,9 +762,19 @@ class ConditionalDiffusionModel(nn.Module):
         return torch.cat([surface_in, constant_boundary, varying_boundary], dim=1)
 
     def _encode_vae(
-        self, surface: torch.Tensor, upper_air: torch.Tensor
+        self, surface: torch.Tensor, upper_air: torch.Tensor, sst_cond: torch.Tensor = None
     ) -> torch.Tensor:
-        """Stochastic VAE encoding -> latent z."""
+        """SST conditioning z for the latent SI UNet.
+
+        With ``sst_cond`` (the persistent SST-anomaly map [B, 2, h, w] built by
+        the dataloader: interpolated IC anomaly + ocean fraction) the VAE is
+        bypassed entirely. Otherwise falls back to the stochastic VAE encoding.
+        """
+        if sst_cond is not None:
+            return sst_cond.to(device=surface.device, dtype=surface.dtype)
+        if self.sst_cond_anom:
+            raise ValueError("sst_cond_anom=True but no sst_cond was supplied; the "
+                             "dataloader must return it as the last batch element.")
         x = self.encoder._select_surface_component(surface) 
         z, mean, logvar = self.encoder.encode(x)  #1, 2, 23, 45
         if self.vae_cond_mode == 'mean':

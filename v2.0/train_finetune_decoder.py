@@ -27,6 +27,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -202,6 +203,7 @@ class DecoderFinetuner(Trainer):
         # vbc shape: [B, max_lead+1, C_vbc, H, W]
         ic_list = []
         for data in self.valid_data_loader:
+            data, sst_c = pop_sst_cond(data, self.params, device)
             if self.params.has_diagnostic:
                 surf, ua, _tgt_surf, _tgt_ua, _tgt_diag, vbc, _t = data
             else:
@@ -214,6 +216,7 @@ class DecoderFinetuner(Trainer):
                     'surf': surf[b:b+1],
                     'ua': ua[b:b+1],
                     'vbc': vbc[b:b+1],  # [1, max_lead+1, C_vbc, H, W]
+                    'sst_cond': sst_c[b:b+1] if sst_c is not None else None,
                 })
                 if len(ic_list) >= NUM_IC:
                     break
@@ -236,6 +239,7 @@ class DecoderFinetuner(Trainer):
             surf0 = ic['surf']
             ua0 = ic['ua']
             vbc = ic['vbc']
+            sst_cond0 = ic['sst_cond']
 
             # Run NUM_ENS members autoregressively up to max_steps
             ens_surf = []   # each: [max_steps, 1, C_sfc, H, W] in standardised space
@@ -255,6 +259,7 @@ class DecoderFinetuner(Trainer):
                         device=device,
                         mc_dropout=True,
                         temperature=1.5,
+                        sst_cond=sst_cond0,
                     )
                     traj_s.append(out_s)
                     traj_ua.append(out_ua)
@@ -359,6 +364,7 @@ class DecoderFinetuner(Trainer):
                         latitudes=latitudes,
                         num_samples=num_samples,
                         target_diagnostic=target_diagnostic if self.params.has_diagnostic else None,
+                        sst_cond=self.sst_cond_batch,
                     )
 
                 self.scaler.scale(loss).backward()

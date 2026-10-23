@@ -43,6 +43,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -218,6 +219,7 @@ class SlowSurfaceTrainer(Trainer):
         if getattr(self.params, 'predict_delta', False):
             raise NotImplementedError(
                 "slow-surface SI rollout does not support predict_delta=True")
+        data, self.sst_cond_batch = pop_sst_cond(data, self.params, dev)
         if self.params.has_diagnostic:
             surf, ua, tgt_sfc, tgt_ua, tgt_diag, vbc, _t = data
             tgt_diag = tgt_diag.to(dev, dtype=f32, non_blocking=True)
@@ -393,7 +395,8 @@ class SlowSurfaceTrainer(Trainer):
             p_sfc, p_ua, p_diag = self.diff_model.prediction(
                 surface_in=s_cur, constant_boundary=cb, varying_boundary=vb,
                 upper_air_in=ua_cur, num_samples=1, device=self.device,
-                temperature=float(getattr(self.params, 'base_temperature', 1.5)))
+                temperature=float(getattr(self.params, 'base_temperature', 1.5)),
+                sst_cond=self.sst_cond_batch)
             if k < step:
                 s_cur, ua_cur = p_sfc.detach().float(), p_ua.detach().float()
 
@@ -517,6 +520,7 @@ class SlowSurfaceTrainer(Trainer):
             if di >= len(ds):
                 break
             data = default_collate([ds[di]])
+            data, sst_c = pop_sst_cond(data, self.params, self.device)
             if self.params.has_diagnostic:
                 in_sfc, in_ua, tgt_sfc, _tu, tgt_diag, vbc, _t = data
                 tgt_diag = tgt_diag.to(self.device, dtype=torch.float32)
@@ -541,7 +545,8 @@ class SlowSurfaceTrainer(Trainer):
                         surface_in=s_cur, constant_boundary=self.constant_boundary_data[:1],
                         varying_boundary=vb, upper_air_in=ua_cur, num_samples=1,
                         device=self.device,
-                        temperature=float(getattr(self.params, 'base_temperature', 1.5)))
+                        temperature=float(getattr(self.params, 'base_temperature', 1.5)),
+                        sst_cond=sst_c)
                     if (k + 1) in per:
                         per[k + 1].append(self._gather(p_sfc, p_diag))
                     s_cur, ua_cur = p_sfc, p_ua

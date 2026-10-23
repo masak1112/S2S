@@ -35,6 +35,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
     Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
     Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
 from utils.data_loader_multifiles import get_data_loader
+from utils.sst_cond import pop_sst_cond
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
@@ -748,6 +749,7 @@ class Trainer():
         prepare input variables for each iteration from data loader.
         The return must contain input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
         """
+        data, self.sst_cond_batch = pop_sst_cond(data, self.params, self.device)
         #Initilaise variables
         input_surface = 0
         input_upper_air = 0

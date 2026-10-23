@@ -62,6 +62,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -388,6 +389,7 @@ class SlowSurfaceInference(Trainer):
         t0 = time.time()
         for batch_idx in date_idxs:
             data = default_collate([self.valid_dataset[batch_idx]])
+            data, sst_c = pop_sst_cond(data, self.params, self.device)
             if self.params.has_diagnostic:
                 in_sfc0, in_ua0, _ts, _tu, _td, vbc, times = data
             else:
@@ -452,6 +454,7 @@ class SlowSurfaceInference(Trainer):
                         device=self.device,
                         temperature=float(getattr(self.params, 'base_temperature', 1.5)),
                         mc_dropout=bool(getattr(self.params, 'infer_mc_dropout', True)),
+                        sst_cond=sst_c,
                     )
 
                     # Correct in normalised space, before inv_transform. The

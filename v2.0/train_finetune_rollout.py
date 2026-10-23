@@ -30,6 +30,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 from utils.losses import Latitude_weighted_CRPSLoss
 
 if not dist.is_initialized():
@@ -173,6 +174,9 @@ class RolloutFinetuner(Trainer):
         dev = self.device
         f32 = torch.float32
 
+        # Persistent IC SST-anomaly conditioning (None unless sst_cond_anom).
+        data, self.sst_cond_batch = pop_sst_cond(data, self.params, dev)
+
         if self.params.has_diagnostic:
             surf, ua, tgt_sfc, tgt_ua, tgt_diag, vbc, _t = data
             tgt_diag = tgt_diag.to(dev, dtype=f32, non_blocking=True)
@@ -211,6 +215,24 @@ class RolloutFinetuner(Trainer):
 
         _load(self.params.checkpoint_path_vae_c1, self.diff_model.encoder)
         _load(self.params.checkpoint_path_det, self.diff_model.model_det)
+
+        # Optional: start the decoder from an existing rollout-finetuned checkpoint.
+        # Only its model_det.* weights are taken; the SI UNet always comes from
+        # checkpoint_path_diff below, so the new UNet is never overwritten.
+        dec_path = getattr(self.params, 'checkpoint_path_decoder_init', None)
+        if dec_path:
+            if not os.path.isfile(dec_path):
+                raise FileNotFoundError(f"checkpoint_path_decoder_init not found: {dec_path}")
+            ckpt = torch.load(dec_path, map_location=f'cuda:{self.params.local_rank}', weights_only=False)
+            state = ckpt['model_state']
+            if any(k.startswith('module.') for k in state):
+                state = OrderedDict((k[7:], v) for k, v in state.items())
+            det_state = {k[len('model_det.'):]: v for k, v in state.items() if k.startswith('model_det.')}
+            if not det_state:
+                raise RuntimeError(f"no model_det.* weights in {dec_path}")
+            self.diff_model.model_det.load_state_dict(det_state, strict=True)
+            print(f"Loaded decoder (model_det, {len(det_state)} tensors) from {dec_path} "
+                  f"(epoch={ckpt.get('epoch')} iters={ckpt.get('iters')})")
 
         si_ckpt_path = getattr(self.params, 'checkpoint_path_diff', None)
         if si_ckpt_path and os.path.isfile(si_ckpt_path):
@@ -277,7 +299,7 @@ class RolloutFinetuner(Trainer):
             with torch.no_grad():
                 surface_cat = self.diff_model._prepare_surface(
                     s_cur, self.constant_boundary_data, vbc_step)
-                z = self.diff_model._encode_vae(surface_cat, ua_cur)
+                z = self.diff_model._encode_vae(surface_cat, ua_cur, self.sst_cond_batch)
                 x, skip = self.diff_model._encode_det(surface_cat, ua_cur, train=False)
 
                 source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5

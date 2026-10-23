@@ -70,6 +70,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -417,6 +418,7 @@ class PostprocessInference(Trainer):
             mc_dropout=self.mc_dropout,
             deterministic_latent=(self.base_latent == 'deterministic'),
             latent_cond=self.latent_cond,
+            sst_cond=getattr(self, 'sst_cond_batch', None),
         )
 
     @torch.no_grad()
@@ -479,6 +481,8 @@ class PostprocessInference(Trainer):
         t0 = time.time()
         for batch_idx in date_idxs:
             data = default_collate([self.valid_dataset[batch_idx]])
+            # Persistent IC SST-anomaly conditioning, held fixed over the rollout.
+            data, self.sst_cond_batch = pop_sst_cond(data, self.params, self.device)
             if self.params.has_diagnostic:
                 in_sfc0, in_ua0, _ts, _tu, _td, vbc, times = data
             else:

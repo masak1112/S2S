@@ -51,6 +51,7 @@ import os, sys, gc, shutil
 import logging
 import glob
 import torch
+import torch.nn.functional as F
 import h5py
 #import random
 import numpy as np
@@ -194,6 +195,14 @@ class GetDataset(Dataset):
         else:
             self.ocean_variables = []
         self.upper_air_variables = params.upper_air_variables or []
+
+        # Persistent SST-anomaly conditioning for the latent SI (replaces the SST VAE).
+        self.sst_cond_anom = bool(getattr(params, 'sst_cond_anom', False))
+        if self.sst_cond_anom:
+            self.sst_clim = np.load(params.sst_clim_path, mmap_mode='r')  # [366,H,W] std units, NaN=land
+            self.sst_anom_scale = float(getattr(params, 'sst_anom_scale', 1.0))
+            self.sst_cond_size = tuple(getattr(params, 'sst_cond_size', (23, 45)))
+            self.sst_channel = self.surface_variables.index('sea_surface_temperature')
 
         self.constant_boundary_variables = params.constant_boundary_variables or []
         self.varying_boundary_variables = params.varying_boundary_variables or []
@@ -497,6 +506,43 @@ class GetDataset(Dataset):
 
 
     def __getitem__(self, index):
+        out = self._getitem_base(index)
+        if not self.sst_cond_anom:
+            return out
+        # Persistent SST-anomaly conditioning, computed once from the initial
+        # condition and appended as the LAST element of the batch tuple.
+        return (*out, self._make_sst_cond(out[0], self._start_time_for(index)))
+
+    def _start_time_for(self, index):
+        if (not self.train and self.params.forecast_lead_times
+                and self.params.sel_dates):
+            return self.dates_all[index]
+        return self.start_date + timedelta(hours=self.dates[index])
+
+    def _make_sst_cond(self, surface_t, start_time):
+        """[2, h, w]: ch0 = interpolated (SST - daily clim)/scale, ch1 = ocean fraction.
+
+        surface_t is the standardized input surface [C, H, W]. The climatology
+        (utils/make_sst_anom_clim.py) is in the same standardized units, NaN on
+        land. Land is excluded from the interpolation (masked average) so coastal
+        cells are not diluted by the land zeros.
+        """
+        cum = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        y, m, d = start_time.year, start_time.month, start_time.day
+        leap = (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0)
+        doy = cum[m - 1] + d + (1 if (leap and m > 2) else 0) - 1
+        clim = torch.from_numpy(np.array(self.sst_clim[doy], dtype=np.float32))
+        valid = (~torch.isnan(clim)).float()
+        sst = surface_t[self.sst_channel].float()
+        anom = torch.nan_to_num(sst - clim, nan=0.0) * valid / self.sst_anom_scale
+        stack = torch.stack([anom, valid], dim=0).unsqueeze(0)
+        lo = F.interpolate(stack, size=self.sst_cond_size, mode='bilinear',
+                           align_corners=False, antialias=True)[0]
+        frac = lo[1:2]
+        anom_lo = lo[0:1] / frac.clamp_min(1e-3) * (frac > 1e-3).float()
+        return torch.cat([anom_lo, frac], dim=0)
+
+    def _getitem_base(self, index):
         #print('Loaded Boundary Data')
         #self.dates = self._get_dates(hour_step=params.timedelta_hours)
         #self.data_dss = self._load_data(initial=False)

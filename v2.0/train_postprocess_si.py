@@ -39,6 +39,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.sst_cond import pop_sst_cond
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -380,6 +381,7 @@ class PostprocessSITrainer(Trainer):
                 num_samples=num_samples,
                 device=self.device,
                 temperature=float(getattr(self.params, 'base_temperature', 1.0)),
+                sst_cond=self.sst_cond_batch,
             )
             if step < target_step:
                 s_cur = pred_sfc.detach().float()
@@ -601,6 +603,7 @@ class PostprocessSITrainer(Trainer):
             # training one _prepare_inputs_batch expects: the targets are
             # multi-step stacks and a trailing start_time tensor is appended
             # (see GetDataset.__getitem__, `validate and lead_times` branch).
+            data, sst_c = pop_sst_cond(data, self.params, self.device)
             if self.params.has_diagnostic:
                 (in_sfc, in_ua, tgt_sfc, tgt_ua, tgt_diag,
                  vbc, _times) = data
@@ -643,6 +646,7 @@ class PostprocessSITrainer(Trainer):
                             num_samples=1,
                             device=self.device,
                             temperature=float(getattr(self.params, 'base_temperature', 1)),
+                            sst_cond=sst_c[b:b + 1] if sst_c is not None else None,
                         )
                         if (step + 1) in per_lead:
                             per_lead[step + 1].append(
