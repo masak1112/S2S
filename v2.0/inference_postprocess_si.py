@@ -99,6 +99,12 @@ class PostprocessInference(Trainer):
         if sst_cond_mode not in ('persistent', 'evolving'):
             raise ValueError(f"sst_cond_mode must be 'persistent' or 'evolving', got {sst_cond_mode!r}")
         self.sst_cond_mode = sst_cond_mode
+        from utils.cond_anom_vars import cond_vars as _cond_vars
+        if sst_cond_mode == 'evolving' and _cond_vars(params):
+            # Only SST/soil/z/OLR are model state; snow depth and sea ice are not predicted, and the
+            # raw-field anomalies would need the forecast state mapped back to physical units.
+            raise NotImplementedError("--sst_cond_mode evolving is only implemented for the SST-only "
+                                      "conditioning (config without cond_anom_vars).")
 
         self.num_members = int(num_members)
         self.blend = float(blend)

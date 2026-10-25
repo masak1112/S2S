@@ -63,6 +63,7 @@ from torch.utils.data.distributed import DistributedSampler
 # import cv2
 #from utils.img_utils import reshape_fields
 from itertools import product
+from utils.cond_anom_vars import REGISTRY as COND_REGISTRY, cond_vars as get_cond_vars, load_stats as load_cond_stats
 from os.path import join
 import cftime
 from datetime import timedelta
@@ -199,10 +200,17 @@ class GetDataset(Dataset):
         # Persistent SST-anomaly conditioning for the latent SI (replaces the SST VAE).
         self.sst_cond_anom = bool(getattr(params, 'sst_cond_anom', False))
         if self.sst_cond_anom:
-            self.sst_clim = np.load(params.sst_clim_path, mmap_mode='r')  # [366,H,W] std units, NaN=land
-            self.sst_anom_scale = float(getattr(params, 'sst_anom_scale', 1.0))
             self.sst_cond_size = tuple(getattr(params, 'sst_cond_size', (23, 45)))
-            self.sst_channel = self.surface_variables.index('sea_surface_temperature')
+            self.cond_vars = get_cond_vars(params)
+            if self.cond_vars:
+                # multi-variable anomaly conditioning (utils/cond_anom_vars.py)
+                self.cond_clim, self.cond_sigma = load_cond_stats(params)
+            else:
+                self.sst_clim = np.load(params.sst_clim_path, mmap_mode='r')  # [366,H,W] std units, NaN=land
+                self.sst_anom_scale = float(getattr(params, 'sst_anom_scale', 1.0))
+                self.sst_channel = self.surface_variables.index('sea_surface_temperature')
+        else:
+            self.cond_vars = None
 
         self.constant_boundary_variables = params.constant_boundary_variables or []
         self.varying_boundary_variables = params.varying_boundary_variables or []
@@ -511,13 +519,52 @@ class GetDataset(Dataset):
             return out
         # Persistent SST-anomaly conditioning, computed once from the initial
         # condition and appended as the LAST element of the batch tuple.
-        return (*out, self._make_sst_cond(out[0], self._start_time_for(index)))
+        start_time = self._start_time_for(index)
+        if self.cond_vars:
+            return (*out, self._make_multi_cond(start_time))
+        return (*out, self._make_sst_cond(out[0], start_time))
 
     def _start_time_for(self, index):
         if (not self.train and self.params.forecast_lead_times
                 and self.params.sel_dates):
             return self.dates_all[index]
         return self.start_date + timedelta(hours=self.dates[index])
+
+    @staticmethod
+    def _doy_index(start_time):
+        # 0-based ordinal day of year; Feb 29 is slot 59 in leap years (same as VAE._doy_index)
+        cum = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        y, m, d = start_time.year, start_time.month, start_time.day
+        leap = (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0)
+        return cum[m - 1] + d + (1 if (leap and m > 2) else 0) - 1
+
+    def _make_multi_cond(self, start_time):
+        """[C, h, w] multi-variable persistent anomaly conditioning (see utils/cond_anom_vars.py).
+
+        Raw fields of the initial condition are read straight from the h5 file, the daily
+        climatology of that ordinal day is removed and the result divided by the variable's
+        global anomaly std. Interpolation to the latent grid is a masked average, so the
+        undefined part of a variable (land for SST/sea ice, ocean for soil water) neither
+        dilutes coastal cells nor leaks fill values.
+        """
+        doy = self._doy_index(start_time)
+        keys = [COND_REGISTRY[v][0] for v in self.cond_vars]
+        raw = self._get_data(start_time, variable_list=keys)            # [V, H, W] physical units
+        anoms, valids = [], []
+        for i, v in enumerate(self.cond_vars):
+            clim = np.asarray(self.cond_clim[v][doy], dtype=np.float32)
+            valid = (~np.isnan(clim)).astype(np.float32)
+            a = np.nan_to_num(raw[i].astype(np.float32) - clim, nan=0.0) * valid / self.cond_sigma[v]
+            anoms.append(a)
+            valids.append(valid)
+        stack = torch.from_numpy(np.stack(anoms + valids, axis=0)).unsqueeze(0)   # [1, 2V, H, W]
+        lo = F.interpolate(stack, size=self.sst_cond_size, mode='bilinear',
+                           align_corners=False, antialias=True)[0]
+        V = len(self.cond_vars)
+        frac = lo[V:]
+        anom_lo = lo[:V] / frac.clamp_min(1e-3) * (frac > 1e-3).float()
+        masked = [i for i, v in enumerate(self.cond_vars) if COND_REGISTRY[v][1]]
+        return torch.cat([anom_lo, frac[masked]], dim=0)
 
     def _make_sst_cond(self, surface_t, start_time):
         """[2, h, w]: ch0 = interpolated (SST - daily clim)/scale, ch1 = ocean fraction.

@@ -15,6 +15,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from torch.utils.checkpoint import checkpoint
+from utils.cond_anom_vars import cond_dim
 
 Tensor = torch.Tensor
 
@@ -211,7 +212,7 @@ class ConUNet_1degV2(nn.Module):
     def __init__(self, dim_in, dim_cond, dim_out, c, c_mults=(1, 2, 4, 8),
                     resnet_block_groups=4, scale = [2,2,2],
                     is_guide=False, drop_prob=0.1, dropout=0.1,
-                    checkpointing=0, use_reentrant=False, gate_init=0.0):
+                    checkpointing=0, use_reentrant=False, gate_init=0.0, cond_gain=False):
         super().__init__()
 
         self.checkpointing = checkpointing
@@ -271,6 +272,9 @@ class ConUNet_1degV2(nn.Module):
 
         self.final_res_block = block_klass(c * 2, c, time_emb_dim=time_dim)
         self.final_conv = nn.Conv2d(c, dim_out, 1)
+        # optional learnable per-channel gain on the conditioning (one scalar per anomaly
+        # variable channel): a cheap monitor of how much each variable is used
+        self.cond_gain = nn.Parameter(torch.ones(1, dim_cond, 1, 1)) if cond_gain else None
         self.cond_to_c = nn.Conv2d(dim_cond, c, kernel_size=1)
         self.cross_attn_in = CrossAttentionConditionFuse(dim_x=c, dim_cond=c, heads=4, dim_head=32, pool_size=(8, 8),
                                                          gate_init=gate_init)
@@ -288,6 +292,8 @@ class ConUNet_1degV2(nn.Module):
 
         t = self.time_mlp(time)
         # print("x shape in diffusion ", x.shape) # 2, 10, 1035, 384
+        if self.cond_gain is not None:
+            cond = cond * self.cond_gain.to(cond.dtype)
         cond_c = self.cond_to_c(cond)
         # print("cond_c  shape", cond_c.shape) # 2, 64, 1035, 384
         # print(" cond shape after projection ", cond.shape) #1, 2, 1035, 384
@@ -638,7 +644,7 @@ class DDIMScheduler:
 # Parameters of the UNet that carry the (SST) conditioning into the drift:
 # cond projection, the two cross-attention fuses and their gates. Used to give
 # them their own optimizer group and to re-initialise them on a warm start.
-COND_BRANCH_MARKERS = ('cross_attn_in.', 'cross_attn_mid.', 'cond_to_c.', 'cond_to_mid.')
+COND_BRANCH_MARKERS = ('cross_attn_in.', 'cross_attn_mid.', 'cond_to_c.', 'cond_to_mid.', 'cond_gain')
 
 
 def is_cond_branch_param(name: str) -> bool:
@@ -687,7 +693,8 @@ class ConditionalDiffusionModel(nn.Module):
         self.model_det = DETEncoder
         self.freeze_encoder()
         self._encoder_param_checksums = self._snapshot_encoder_params()
-        self.unet = ConUNet_1degV2(dim_in =20, dim_cond=2, dim_out=10, c = 64,
+        self.unet = ConUNet_1degV2(dim_in =20, dim_cond=cond_dim(params), dim_out=10, c = 64,
+                                   cond_gain=bool(getattr(params, 'cond_channel_gain', False)),
                                    c_mults=(1, 2, 2, 4),scale=[2, 2, 2], resnet_block_groups=4,
                                    checkpointing=getattr(params, 'checkpointing', 0),
                                    use_reentrant=getattr(params, 'use_reentrant', False),

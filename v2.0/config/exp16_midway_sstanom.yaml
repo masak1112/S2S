@@ -331,3 +331,30 @@ S2S_SSTANOM: &S2S_SSTANOM
   checkpoint_path_decoder_init: "/project/pedramh/bing/checkpoints_UC-S2S_V2/loaded/3_base_full_state_rollout_finetuned/rollout_ckpt_1000.tar"
   # Run the base-vs-postprocessed CRPS/SSR validation every 500 iterations.
   pp_val_freq: 500
+
+
+# ── Latent SI conditioned on the persistent anomaly of SEVERAL slow variables ──
+# Same recipe as S2S_SSTANOM, but the conditioning map stacks the initial-condition anomaly of
+# every variable in cond_anom_vars (utils/cond_anom_vars.py): (x_ic - daily clim[doy]) / sigma_v,
+# interpolated to sst_cond_size, plus a valid-fraction channel for the masked variables
+# (sst, sic: ocean; vswl: land). dim_cond = 8 anomalies + 3 valid channels = 11.
+# One shared cross-attention; cond_channel_gain adds a learnable scalar per channel (a monitor
+# of which variable is used; the leave-one-out effect per variable is logged as cond/cond_rel_effect_<v>).
+# Climatologies/sigmas: HPC_scripts/midway_make_cond_clim.sh -> clim_00z/cond_clim_<v>.npy, cond_scalar_<v>.npy.
+# Launched by HPC_scripts/midway_train_multicond_pipeline.sh.
+S2S_MULTICOND: &S2S_MULTICOND
+  <<: *S2S_SSTANOM
+  sst_cond_anom: True
+  cond_anom_vars: [sst, z10, z250, z500, olr, vswl, snow, sic]
+  cond_anom_dir: '/project/pedramh/bing/S2S/v2.0/clim_00z'
+  sst_cond_size: [23, 45]
+  cond_channel_gain: True
+  # Stage 1 warm start: UNet of the SST-anomaly stage-1 run (conditioning branch re-initialised,
+  # its first conv now has 11 input channels).
+  checkpoint_path_diff_init: "/project/pedramh/bing/checkpoints_UC-S2S_V3/fallback_not_loaded/latent_si_sstanom_stage1/last_ckpt.tar"
+  checkpoint_path_diff: "/project/pedramh/bing/S2S/v2.0/HPC_scripts/results/S2S_MULTICOND/si_c1_multicond/training_checkpoints/last_ckpt.tar"
+  # Stage 2: decoder (model_det) starts from the SST-anomaly rollout-finetuned checkpoint.
+  checkpoint_path_decoder_init: "/project/pedramh/bing/checkpoints_UC-S2S_V3/loaded/3_base_full_state_rollout_finetuned_sstanom/rollout_ckpt_650.tar"
+  # Stage 3 base = output of stage 2 (set to the rollout_ckpt_N.tar you pick).
+  checkpoint_path_finetuned: "/project/pedramh/bing/S2S/v2.0/HPC_scripts/results/S2S_MULTICOND/rollout_finetune_rollout_multicond/training_checkpoints/rollout_last.tar"
+  pp_val_freq: 500

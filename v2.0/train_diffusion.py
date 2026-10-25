@@ -156,6 +156,12 @@ class DiffusionTrainer(Trainer):
                          self.iters, d.get('train_loss', float('nan')), d['cond_rel_effect'],
                          d['cross_attn_in_gate'], d['cross_attn_mid_gate'],
                          d['cross_attn_in_to_out_absmax'], d['cross_attn_mid_to_out_absmax'], d['cond_z_absmean']))
+        per_var = {k[len('cond_rel_effect_'):]: v for k, v in d.items() if k.startswith('cond_rel_effect_')}
+        if per_var:
+            gains = {k[len('cond_gain_'):]: v for k, v in d.items() if k.startswith('cond_gain_')}
+            logging.info("cond diag iter %d: leave-one-out rel_effect per variable: %s | gain: %s" % (
+                self.iters, ' '.join(f'{k}={v:.4f}' for k, v in per_var.items()),
+                ' '.join(f'{k}={v:.3f}' for k, v in gains.items())))
         if self.wandb_enabled:
             wandb.log({f"cond/{k}": v for k, v in d.items()}, step=self.iters)
 

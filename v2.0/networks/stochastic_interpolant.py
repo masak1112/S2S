@@ -244,6 +244,22 @@ class StochasticInterpolant(ConditionalDiffusionModel):
             fuse = getattr(self.unet, name)
             out[f'{name}_gate'] = fuse.gate.item()
             out[f'{name}_to_out_absmax'] = fuse.to_out.weight.abs().max().item()
+        # Per-variable leave-one-out: drift change when ONE variable's channels are zeroed,
+        # relative to the drift with the full conditioning (multi-variable conditioning only).
+        from utils.cond_anom_vars import cond_vars, var_channel_groups
+        if cond_vars(self.params):
+            was_training = self.unet.training
+            self.unet.eval()
+            for var, idx in var_channel_groups(self.params).items():
+                z_m = z.clone()
+                z_m[:, idx] = 0
+                d_m = self.unet(inp, z_m, ts).float()
+                out[f'cond_rel_effect_{var}'] = ((d_z - d_m).norm() / d_z.norm().clamp_min(1e-12)).item()
+                out[f'cond_absmean_{var}'] = z[:, idx[0]].float().abs().mean().item()
+                if self.unet.cond_gain is not None:
+                    out[f'cond_gain_{var}'] = self.unet.cond_gain[0, idx[0]].mean().item()
+            if was_training:
+                self.unet.train()
         return out
 
     def _plot_scatter(self, pred: torch.Tensor, target: torch.Tensor,
