@@ -31,6 +31,8 @@ from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
 from utils.sst_cond import pop_sst_cond
+from utils.evolving_cond import EvolvingCond
+from utils.cond_anom_vars import cond_vars
 from utils.losses import Latitude_weighted_CRPSLoss
 
 if not dist.is_initialized():
@@ -183,6 +185,7 @@ class RolloutFinetuner(Trainer):
         else:
             surf, ua, tgt_sfc, tgt_ua, vbc, _t = data
             tgt_diag = None
+        self.start_times_batch = _t     # [B, 4] (year, month, day, hour) of the initial condition
 
         surf    = surf.to(dev,    dtype=f32, non_blocking=True)
         ua      = ua.to(dev,      dtype=f32, non_blocking=True)
@@ -250,6 +253,17 @@ class RolloutFinetuner(Trainer):
         self.diff_model._encoder_param_checksums = self.diff_model._snapshot_encoder_params()
         print("Encoders frozen for rollout CRPS fine-tuning")
 
+    def _evolving_cond(self):
+        """EvolvingCond when cond_evolving is on for a multi-variable conditioning, else None."""
+        if not hasattr(self, '_evolving'):
+            self._evolving = None
+            if bool(getattr(self.params, 'cond_evolving', False)) and cond_vars(self.params):
+                self._evolving = EvolvingCond(self.train_datasets[0], self.params, self.device)
+                logging.info(f"[rollout-finetune] evolving anomaly conditioning ON for "
+                             f"{self._evolving.evolved}; persistent for "
+                             f"{[v for v in self._evolving.vars if v not in self._evolving.evolved]}")
+        return self._evolving
+
     def _get_latitudes(self):
         return torch.from_numpy(np.array(self.params.lat)).float()
 
@@ -281,6 +295,7 @@ class RolloutFinetuner(Trainer):
         crps_loss_fn = Latitude_weighted_CRPSLoss(latitudes, num_ensemble_members=num_samples)
 
         s_cur = surface_in       # (B, C_sfc, H, W)
+        diag_prev = None         # forecast diagnostics fed back for the evolving OLR conditioning
         ua_cur = upper_air_in    # (B, C_ua, P, H, W)
 
         total_crps_sfc  = 0.0
@@ -295,11 +310,18 @@ class RolloutFinetuner(Trainer):
             tgt_ua   = target_upper_air_steps[:, step]  # (B, C_ua, P, H, W)
             tgt_diag = target_diagnostic_steps[:, step] if target_diagnostic_steps is not None else None
 
+            # Conditioning map for this step: persistent initial-condition map, or (cond_evolving)
+            # rebuilt from the fed-back forecast state for the variables the model predicts.
+            cond_k = self.sst_cond_batch
+            if self._evolving_cond() is not None:
+                cond_k = self._evolving.build(self.sst_cond_batch, s_cur, ua_cur, diag_prev,
+                                              self.start_times_batch, step)
+
             # Encode (frozen, no grad through SI)
             with torch.no_grad():
                 surface_cat = self.diff_model._prepare_surface(
                     s_cur, self.constant_boundary_data, vbc_step)
-                z = self.diff_model._encode_vae(surface_cat, ua_cur, self.sst_cond_batch)
+                z = self.diff_model._encode_vae(surface_cat, ua_cur, cond_k)
                 x, skip = self.diff_model._encode_det(surface_cat, ua_cur, train=False)
 
                 source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
@@ -404,6 +426,9 @@ class RolloutFinetuner(Trainer):
                     -1, num_samples, *pred_sfc.shape[1:])[:, rand_member]
                 pred_ua_sel  = pred_ua.reshape(
                     -1, num_samples, *pred_ua.shape[1:])[:, rand_member]
+                if pred_diag is not None:
+                    diag_prev = pred_diag.reshape(
+                        -1, num_samples, *pred_diag.shape[1:])[:, rand_member].detach().float()
             s_cur  = pred_sfc_sel.detach().float()
             ua_cur = pred_ua_sel.detach().float()
 
