@@ -35,6 +35,7 @@ p.add_argument('--harmonics', type=int, default=6)
 p.add_argument('--stride', type=int, default=3)
 p.add_argument('--workers', type=int, default=16)
 p.add_argument('--reuse_clim', action='store_true', help='skip pass 1, use the saved cond_clim_<v>.npy')
+p.add_argument('--unweighted', action='store_true', help='plain (not cos-latitude weighted) grid-point std')
 p.add_argument('--vars', nargs='+', default=[v for v in REGISTRY if v != 'sst'])
 args = p.parse_args()
 KEYS = [REGISTRY[v][0] for v in args.vars]
@@ -75,6 +76,8 @@ def anom_chunk(doys):
     ss, cnt, sm = np.zeros(len(KEYS)), np.zeros(len(KEYS)), np.zeros(len(KEYS))
     lat = np.linspace(89.5, -89.5, 180)
     w = np.cos(np.deg2rad(lat))[:, None] * np.ones((1, 360))
+    if args.unweighted:
+        w = np.ones_like(w)
     for d in doys:
         for y in YEARS:
             a = read(y, d)
