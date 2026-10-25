@@ -88,8 +88,17 @@ class PostprocessInference(Trainer):
                  years: list | None = None, max_dates: int | None = None,
                  save_vars: list | None = None, overwrite: bool = False,
                  base_latent: str = 'si', mc_dropout: bool | None = None,
-                 latent_cond: str = 'sst'):
+                 latent_cond: str = 'sst', sst_cond_mode: str = 'persistent'):
         super().__init__(params, world_rank)
+
+        # SST-anomaly conditioning of the latent SI (S2S_SSTANOM models):
+        #   persistent : the map built from the initial condition is held fixed;
+        #   evolving   : at every step the map is rebuilt from the forecast SST
+        #                that is fed back as the next input, as anomaly w.r.t. the
+        #                daily climatology of that step's valid date.
+        if sst_cond_mode not in ('persistent', 'evolving'):
+            raise ValueError(f"sst_cond_mode must be 'persistent' or 'evolving', got {sst_cond_mode!r}")
+        self.sst_cond_mode = sst_cond_mode
 
         self.num_members = int(num_members)
         self.blend = float(blend)
@@ -124,6 +133,7 @@ class PostprocessInference(Trainer):
         if world_rank == 0:
             logging.info(
                 f"Base model: latent={self.base_latent}, latent_cond={self.latent_cond}, "
+                f"sst_cond_mode={self.sst_cond_mode}, "
                 f"mc_dropout={self.mc_dropout}, "
                 f"temperature={self.base_temperature}, feedback={self.feedback}"
                 + (", shared base trajectory across members" if self.share_base else ""))
@@ -405,8 +415,27 @@ class PostprocessInference(Trainer):
     # ------------------------------------------------------------------
 
     @torch.no_grad()
-    def _base_step(self, s_cur, ua_cur, cb, vbc_step):
+    def _evolving_sst_cond(self, s_cur, step):
+        """SST-anomaly conditioning rebuilt from the current (forecast) state.
+
+        s_cur is the normalised surface state that is the input of `step`, valid
+        at start + step * timedelta_hours. The anomaly is taken against the
+        climatology of that valid date, so it matches how the latent SI was
+        trained (one-step data: input-state anomaly at the input's own date).
+        """
+        dt = timedelta(hours=int(self.params.timedelta_hours) * step)
+        cond = [self.valid_dataset._make_sst_cond(s_cur[b].detach().float().cpu(),
+                                                  self._start_times[b] + dt)
+                for b in range(s_cur.shape[0])]
+        return torch.stack(cond, dim=0).to(self.device)
+
+    @torch.no_grad()
+    def _base_step(self, s_cur, ua_cur, cb, vbc_step, step=None):
         """One base-model step in normalised space -> (sfc, ua, diag)."""
+        if self.sst_cond_mode == 'evolving' and step is not None:
+            sst_cond = self._evolving_sst_cond(s_cur, step)
+        else:
+            sst_cond = getattr(self, 'sst_cond_batch', None)
         return self.diff_model.prediction(
             surface_in=s_cur,
             constant_boundary=cb,
@@ -418,7 +447,7 @@ class PostprocessInference(Trainer):
             mc_dropout=self.mc_dropout,
             deterministic_latent=(self.base_latent == 'deterministic'),
             latent_cond=self.latent_cond,
-            sst_cond=getattr(self, 'sst_cond_batch', None),
+            sst_cond=sst_cond,
         )
 
     @torch.no_grad()
@@ -433,7 +462,7 @@ class PostprocessInference(Trainer):
         traj = []
         s_cur, ua_cur = in_sfc0, in_ua0
         for step in range(steps):
-            p_sfc, p_ua, p_diag = self._base_step(s_cur, ua_cur, cb, vbc[:, step])
+            p_sfc, p_ua, p_diag = self._base_step(s_cur, ua_cur, cb, vbc[:, step], step=step)
             traj.append((p_sfc.cpu(), p_ua.cpu(),
                          p_diag.cpu() if p_diag is not None else None))
             s_cur, ua_cur = p_sfc, p_ua
@@ -498,6 +527,7 @@ class PostprocessInference(Trainer):
                 for i in range(times.shape[0])
             ]
 
+            self._start_times = start_times
             B = in_sfc0.shape[0]
             cb = self.constant_boundary_data[:B]
             base_traj = None  # filled lazily when self.share_base
@@ -550,7 +580,7 @@ class PostprocessInference(Trainer):
                             for t in base_traj[step])
                     else:
                         p_sfc, p_ua, p_diag = self._base_step(
-                            s_cur, ua_cur, cb, vbc[:, step])
+                            s_cur, ua_cur, cb, vbc[:, step], step=step)
 
                     # Correct in normalised space, before inv_transform.
                     c_sfc, c_ua, c_diag = self._apply_correction(
@@ -729,6 +759,10 @@ if __name__ == '__main__':
                              "model. 'deterministic' bypasses it (Pangu latent passed "
                              "through unperturbed) so the postprocess SI is the only "
                              "source of spread — the ablation run.")
+    parser.add_argument('--sst_cond_mode', default='persistent', choices=('persistent', 'evolving'),
+                        help="S2S_SSTANOM models: 'persistent' holds the initial SST-anomaly map "
+                             "fixed; 'evolving' rebuilds it every step from the forecast SST "
+                             "(the fed-back state) against the climatology of the valid date.")
     parser.add_argument('--latent_cond', default='sst', choices=('sst', 'off'),
                         help="Conditioning of the latent-space SI UNet. 'sst' "
                              "(default) cross-attends to the VAE encoding of the "
@@ -819,6 +853,7 @@ if __name__ == '__main__':
         base_latent=args.base_latent,
         mc_dropout=(None if args.mc_dropout is None else args.mc_dropout == 'on'),
         latent_cond=args.latent_cond,
+        sst_cond_mode=args.sst_cond_mode,
     )
     runner.predict()
     logging.info('Postprocess-SI inference DONE — rank %d' % world_rank)
