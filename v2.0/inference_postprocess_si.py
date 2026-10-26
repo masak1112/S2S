@@ -99,12 +99,7 @@ class PostprocessInference(Trainer):
         if sst_cond_mode not in ('persistent', 'evolving'):
             raise ValueError(f"sst_cond_mode must be 'persistent' or 'evolving', got {sst_cond_mode!r}")
         self.sst_cond_mode = sst_cond_mode
-        from utils.cond_anom_vars import cond_vars as _cond_vars
-        if sst_cond_mode == 'evolving' and _cond_vars(params):
-            # Only SST/soil/z/OLR are model state; snow depth and sea ice are not predicted, and the
-            # raw-field anomalies would need the forecast state mapped back to physical units.
-            raise NotImplementedError("--sst_cond_mode evolving is only implemented for the SST-only "
-                                      "conditioning (config without cond_anom_vars).")
+        self._evo = None   # EvolvingCond (multi-variable conditioning), built lazily
 
         self.num_members = int(num_members)
         self.blend = float(blend)
@@ -436,9 +431,18 @@ class PostprocessInference(Trainer):
         return torch.stack(cond, dim=0).to(self.device)
 
     @torch.no_grad()
-    def _base_step(self, s_cur, ua_cur, cb, vbc_step, step=None):
+    def _base_step(self, s_cur, ua_cur, cb, vbc_step, step=None, diag_prev=None):
         """One base-model step in normalised space -> (sfc, ua, diag)."""
-        if self.sst_cond_mode == 'evolving' and step is not None:
+        from utils.cond_anom_vars import cond_vars as _cond_vars
+        if self.sst_cond_mode == 'evolving' and step is not None and _cond_vars(self.params):
+            # multi-variable conditioning: rebuild the model-predicted channels from the fed-back
+            # state (SST, soil water, z10/z250/z500, OLR); snow depth / sea ice stay persistent
+            if self._evo is None:
+                from utils.evolving_cond import EvolvingCond
+                self._evo = EvolvingCond(self.valid_dataset, self.params, self.device)
+            sst_cond = self._evo.build(self.sst_cond_batch, s_cur, ua_cur, diag_prev,
+                                       self._start_times_tensor, step)
+        elif self.sst_cond_mode == 'evolving' and step is not None:
             sst_cond = self._evolving_sst_cond(s_cur, step)
         else:
             sst_cond = getattr(self, 'sst_cond_batch', None)
@@ -466,12 +470,13 @@ class PostprocessInference(Trainer):
         whole member loop.
         """
         traj = []
-        s_cur, ua_cur = in_sfc0, in_ua0
+        s_cur, ua_cur, diag_prev = in_sfc0, in_ua0, None
         for step in range(steps):
-            p_sfc, p_ua, p_diag = self._base_step(s_cur, ua_cur, cb, vbc[:, step], step=step)
+            p_sfc, p_ua, p_diag = self._base_step(s_cur, ua_cur, cb, vbc[:, step], step=step,
+                                                  diag_prev=diag_prev)
             traj.append((p_sfc.cpu(), p_ua.cpu(),
                          p_diag.cpu() if p_diag is not None else None))
-            s_cur, ua_cur = p_sfc, p_ua
+            s_cur, ua_cur, diag_prev = p_sfc, p_ua, p_diag
         logging.info(f"rank {world_rank}: shared base trajectory computed "
                      f"({steps} steps)")
         return traj
@@ -534,6 +539,8 @@ class PostprocessInference(Trainer):
             ]
 
             self._start_times = start_times
+            self._start_times_tensor = torch.tensor(
+                [[d.year, d.month, d.day, d.hour] for d in start_times])
             B = in_sfc0.shape[0]
             cb = self.constant_boundary_data[:B]
             base_traj = None  # filled lazily when self.share_base
@@ -573,6 +580,7 @@ class PostprocessInference(Trainer):
                     in_ua0.cpu()).numpy()
 
                 s_cur, ua_cur = in_sfc0, in_ua0
+                diag_prev = None
 
                 for step in range(steps):
                     if self.share_base:
@@ -586,7 +594,7 @@ class PostprocessInference(Trainer):
                             for t in base_traj[step])
                     else:
                         p_sfc, p_ua, p_diag = self._base_step(
-                            s_cur, ua_cur, cb, vbc[:, step], step=step)
+                            s_cur, ua_cur, cb, vbc[:, step], step=step, diag_prev=diag_prev)
 
                     # Correct in normalised space, before inv_transform.
                     c_sfc, c_ua, c_diag = self._apply_correction(
@@ -607,9 +615,9 @@ class PostprocessInference(Trainer):
                         out_diag[:, step + 1] = diag_phys
 
                     if self.feedback == 'corrected':
-                        s_cur, ua_cur = c_sfc, c_ua
+                        s_cur, ua_cur, diag_prev = c_sfc, c_ua, c_diag
                     else:
-                        s_cur, ua_cur = p_sfc, p_ua
+                        s_cur, ua_cur, diag_prev = p_sfc, p_ua, p_diag
 
                 self.save_prediction(out_sfc, out_ua, start_times,
                                      diagnostic_prediction=out_diag, ens_id=ens_id)
