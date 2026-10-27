@@ -790,6 +790,9 @@ if __name__ == '__main__':
                              "--base_latent deterministic.")
     parser.add_argument('--years', default=None, type=int, nargs='+',
                         help='Restrict sel_dates to these init years (default: all).')
+    parser.add_argument('--init_date_set', default=None, choices=('fuxi_s2s',),
+                        help="Replace the default Mon/Thu Jan-Apr init dates with the "
+                             "FuXi-S2S list (104/yr, 2019-2021).")
     parser.add_argument('--max_dates', default=None, type=int,
                         help='Cap the number of init dates (default: all).')
     parser.add_argument('--overwrite', action='store_true',
@@ -823,6 +826,9 @@ if __name__ == '__main__':
         params['inference_steps'] = args.inference_steps
     elif 'inference_steps' not in params:
         params['inference_steps'] = 45
+
+    if args.init_date_set:
+        params['init_date_set'] = args.init_date_set
 
     params['world_size'] = int(os.environ.get('WORLD_SIZE', torch.cuda.device_count()))
     if params['world_size'] > 1:

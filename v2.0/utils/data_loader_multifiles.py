@@ -140,6 +140,33 @@ def get_initialization_dates(year, start_month=1, end_month=4):
 
     return filtered_dates_yr
 
+_FUXI_S2S_DAYS = {
+    1: (3, 6, 10, 13, 17, 20, 24, 27, 31),
+    2: (3, 7, 10, 14, 17, 21, 24, 'last'),   # 28th, or 29th in leap years
+    3: (3, 7, 10, 14, 17, 21, 24, 28, 31),
+    4: (4, 7, 11, 14, 18, 21, 25, 28),
+    5: (2, 5, 9, 12, 16, 19, 23, 26, 30),
+    6: (2, 6, 9, 13, 16, 20, 23, 27, 30),
+    7: (4, 7, 11, 14, 18, 21, 25, 28),
+    8: (1, 4, 8, 11, 15, 18, 22, 25, 29),
+    9: (1, 5, 8, 12, 15, 19, 22, 26, 29),
+    10: (3, 6, 10, 13, 17, 20, 24, 27, 31),
+    11: (3, 7, 10, 14, 17, 21, 24, 28),
+    12: (1, 5, 8, 12, 15, 19, 22, 26, 29),
+}
+
+
+def get_fuxi_s2s_initialization_dates(year):
+    """FuXi-S2S initial dates (104 per year, same calendar days every year)."""
+    dates = []
+    for month, days in _FUXI_S2S_DAYS.items():
+        for d in days:
+            if d == 'last':
+                d = pd.Timestamp(year, month, 1).days_in_month
+            dates.append(pd.Timestamp(year, month, d))
+    return pd.DatetimeIndex(dates)
+
+
 class GetDataset(Dataset):
     def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, load_targets = True):
         self.params = params
@@ -291,9 +318,14 @@ class GetDataset(Dataset):
             
         if self.params.sel_dates and not self.train:
             years = [2019,2020,2021,2022,2023,2024]
+            fuxi = (hasattr(self.params, 'init_date_set')
+                    and self.params.init_date_set == 'fuxi_s2s')
+            if fuxi:
+                years = [2019, 2020, 2021]
             self.dates_all = []
             for year in years:
-                dates= get_initialization_dates(year)   
+                dates = (get_fuxi_s2s_initialization_dates(year) if fuxi
+                         else get_initialization_dates(year))
                 self.dates_all.extend(dates)
 
     def _get_variable_list(self, level_units = '.0'):

@@ -356,7 +356,7 @@ S2S_MULTICOND: &S2S_MULTICOND
   # Stage 2: decoder (model_det) starts from the SST-anomaly rollout-finetuned checkpoint.
   checkpoint_path_decoder_init: "/project/pedramh/bing/checkpoints_UC-S2S_V3/loaded/3_base_full_state_rollout_finetuned_sstanom/rollout_ckpt_650.tar"
   # Stage 3 base = output of stage 2 (set to the rollout_ckpt_N.tar you pick).
-  checkpoint_path_finetuned: "/project/pedramh/bing/S2S/v2.0/HPC_scripts/results/S2S_MULTICOND/rollout_finetune_rollout_multicond/training_checkpoints/rollout_last.tar"
+  checkpoint_path_finetuned: "/project/pedramh/bing/S2S/v2.0/HPC_scripts/results/S2S_MULTICOND/rollout_finetune_rollout_multicond/training_checkpoints/rollout_ckpt_1050.tar"
   pp_val_freq: 500
   # Stage 2: rebuild the anomaly conditioning at every rollout step from the forecast state
   # (SST, soil water, z10/z250/z500, OLR); snow depth and sea ice stay at their initial values.
