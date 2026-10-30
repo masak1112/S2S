@@ -167,6 +167,21 @@ def get_fuxi_s2s_initialization_dates(year):
     return pd.DatetimeIndex(dates)
 
 
+ECMWF_HINDCAST_DATES_FILE = join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ecmwf_hindcast_dates_2019-2021.txt')
+
+
+def get_ecmwf_missing_initialization_dates(year):
+    """ECMWF hindcast init dates for `year` that are not in the FuXi-S2S list."""
+    ecmwf = pd.DatetimeIndex([l.strip() for l in open(ECMWF_HINDCAST_DATES_FILE) if l.strip()])
+    return ecmwf[ecmwf.year == year].difference(get_fuxi_s2s_initialization_dates(year))
+
+
+def get_ecmwf_all_initialization_dates(year):
+    """All ECMWF hindcast init dates for `year` (every date in the file)."""
+    ecmwf = pd.DatetimeIndex([l.strip() for l in open(ECMWF_HINDCAST_DATES_FILE) if l.strip()])
+    return ecmwf[ecmwf.year == year]
+
+
 class GetDataset(Dataset):
     def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, load_targets = True):
         self.params = params
@@ -320,11 +335,17 @@ class GetDataset(Dataset):
             years = [2019,2020,2021,2022,2023,2024]
             fuxi = (hasattr(self.params, 'init_date_set')
                     and self.params.init_date_set == 'fuxi_s2s')
-            if fuxi:
+            ecmwf_missing = (hasattr(self.params, 'init_date_set')
+                             and self.params.init_date_set == 'ecmwf_missing')
+            ecmwf_all = (hasattr(self.params, 'init_date_set')
+                         and self.params.init_date_set == 'ecmwf_all')
+            if fuxi or ecmwf_missing or ecmwf_all:
                 years = [2019, 2020, 2021]
             self.dates_all = []
             for year in years:
                 dates = (get_fuxi_s2s_initialization_dates(year) if fuxi
+                         else get_ecmwf_missing_initialization_dates(year) if ecmwf_missing
+                         else get_ecmwf_all_initialization_dates(year) if ecmwf_all
                          else get_initialization_dates(year))
                 self.dates_all.extend(dates)
 

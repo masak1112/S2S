@@ -790,9 +790,11 @@ if __name__ == '__main__':
                              "--base_latent deterministic.")
     parser.add_argument('--years', default=None, type=int, nargs='+',
                         help='Restrict sel_dates to these init years (default: all).')
-    parser.add_argument('--init_date_set', default=None, choices=('fuxi_s2s',),
+    parser.add_argument('--init_date_set', default=None, choices=('fuxi_s2s', 'ecmwf_missing', 'ecmwf_all'),
                         help="Replace the default Mon/Thu Jan-Apr init dates with the "
-                             "FuXi-S2S list (104/yr, 2019-2021).")
+                             "FuXi-S2S list (104/yr, 2019-2021), or 'ecmwf_missing' for the ECMWF "
+                             "hindcast dates not in the FuXi-S2S list (132/yr), or 'ecmwf_all' for every date in "
+                             "ecmwf_hindcast_dates_2019-2021.txt (186/yr).")
     parser.add_argument('--max_dates', default=None, type=int,
                         help='Cap the number of init dates (default: all).')
     parser.add_argument('--overwrite', action='store_true',
