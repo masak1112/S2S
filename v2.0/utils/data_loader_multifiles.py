@@ -567,7 +567,7 @@ class GetDataset(Dataset):
                 upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False)
 
             max_lead_time = lead_times[-1]
-            boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
+            boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(1, max_lead_time + 1)]
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
 
