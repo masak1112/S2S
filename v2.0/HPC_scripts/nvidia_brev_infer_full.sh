@@ -11,8 +11,10 @@ conda activate /home/nvidia/miniforge3/envs/s2s_env
 # Postprocess settings as in the reference run pp_si_infer_v2: blend 1.0,
 # feedback base (correction is applied to the saved output, the uncorrected
 # state continues the rollout).
-# MC dropout OFF, as in the latent_si / latent_si_crps runs, so the only change
-# from latent_si_crps is the postprocess SI. (pp_si_infer_v2 had it on.)
+# MC dropout ON (dropout + DropPath active in the Pangu backbone at inference), as in
+# the reference run pp_si_infer_v2 and the upstream default; members then differ
+# through both the latent-SI noise and dropout. (The latent_si / latent_si_crps
+# runs have it off.)
 #
 # Init dates: same 50 as the other runs (2019-01-03 .. 2020-02-24).
 # Members are sharded over GPUs; relaunching skips finished member files.
@@ -42,7 +44,7 @@ python -m torch.distributed.run --master_port=29544 --nproc_per_node=$NGPU \
     --blend=1.0 \
     --feedback=base \
     --base_latent=si \
-    --mc_dropout=off \
+    --mc_dropout=on \
     --num_members=$NUM_MEMBERS \
     --inference_steps=45 \
     --years 2019 2020 --max_dates 50 \
