@@ -1,0 +1,10 @@
+# nsys reports and everything the profiled scripts write into the cwd
+reports/
+results/
+spectra_out/
+gif_out/
+acc_plots/
+logs/
+wandb/
+*.nsys-rep
+*.sqlite

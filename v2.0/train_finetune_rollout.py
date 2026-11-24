@@ -28,9 +28,11 @@ from ruamel.yaml.comments import CommentedMap as ruamelDict
 
 from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
+from train_finetune_decoder import DecoderFinetuner
 from utils import logging_utils
 from utils.YParams import YParams
 from utils.losses import Latitude_weighted_CRPSLoss
+from utils.profiling import nvtx_range, nvtx_push, nvtx_pop, timed_iter, ProfileWindow
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -39,10 +41,17 @@ world_rank = dist.get_rank()
 
 
 class RolloutFinetuner(Trainer):
+    # CRPS/SSR validation (4 ICs x 4 members x 1/5/10-day leads), shared with
+    # the decoder finetune: both finetune the same Pangu decoder.
+    validate_crps_ssr = DecoderFinetuner.validate_crps_ssr
+    _crps_scores = DecoderFinetuner._crps_scores
+
     def __init__(self, params, world_rank, max_rollout_steps=10, rollout_step_interval=2000, initial_rollout_steps=1):
         super().__init__(params, world_rank)
 
         self.max_rollout_steps = max_rollout_steps
+        # Run validate_crps_ssr() every N iterations (0 = never, as before).
+        self.val_every = int(getattr(params, 'val_every', 0))
         self.rollout_step_interval = rollout_step_interval
         # Offset so the schedule starts at initial_rollout_steps from iteration 0.
         # current_rollout_steps = 1 + (iters + iters_offset) // interval
@@ -84,6 +93,7 @@ class RolloutFinetuner(Trainer):
 
         self.get_dataset_rollout()
         self.scaler = GradScaler()
+        self.prof = ProfileWindow("finetune_rollout", world_rank)
         self.wandb_enabled = bool(getattr(params, 'log_to_wandb', False) and wandb.run is not None)
         if self.wandb_enabled and world_rank == 0:
             wandb.define_metric('iters')
@@ -131,6 +141,12 @@ class RolloutFinetuner(Trainer):
         # Fine-tuning uses the full continuous date range for both train and val loaders.
         # The dataset holds a live reference to self.params so the flag must stay False.
         self.params['sel_dates'] = False
+        # The dataset loads forecast_lead_times[-1] targets (+ boundaries) per
+        # sample; the config's 45 is for inference. The rollout never uses more
+        # than max_rollout_steps of them, and each extra target is a 26 MB read.
+        # Validation rolls out to 10 days, so it needs at least 10.
+        self.params['forecast_lead_times'] = [max(self.max_rollout_steps,
+                                                  10 if self.val_every > 0 else 0)]
 
         if self.params.train_year_to_year:
             self.train_data_loaders, self.train_datasets, self.train_samplers = [], [], []
@@ -268,6 +284,7 @@ class RolloutFinetuner(Trainer):
         total_loss = 0.0
 
         for step in range(num_rollout):
+            nvtx_push("rollout_step")
             vbc_step = varying_boundary_data[:, step]   # (B, C_vbc, H, W)
             tgt_sfc  = target_surface_steps[:, step]    # (B, C_sfc, H, W)
             tgt_ua   = target_upper_air_steps[:, step]  # (B, C_ua, P, H, W)
@@ -275,10 +292,12 @@ class RolloutFinetuner(Trainer):
 
             # Encode (frozen, no grad through SI)
             with torch.no_grad():
+                nvtx_push("encode")
                 surface_cat = self.diff_model._prepare_surface(
                     s_cur, self.constant_boundary_data, vbc_step)
                 z = self.diff_model._encode_vae(surface_cat, ua_cur)
                 x, skip = self.diff_model._encode_det(surface_cat, ua_cur, train=False)
+                nvtx_pop()
 
                 source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
                 x_si = self.diff_model.generate(
@@ -292,13 +311,11 @@ class RolloutFinetuner(Trainer):
                     source_sigma=source_sigma,
                 )  # (B*num_samples, Pl, seq, embed*scale)
 
-            # Free encoder/SI intermediates before the decoder forward pass.
-            torch.cuda.empty_cache()
 
             BS = x_si.shape[0]
 
             # Decoder — gradients flow here
-            with autocast(device_type='cuda', dtype=torch.float16):
+            with nvtx_range("decode_and_loss"), autocast(device_type='cuda', dtype=torch.float16):
                 Pl_est, Lat_est, Lon_est = self.diff_model.model_det.EST_input_resolution
                 x_dec = x_si.reshape(BS, -1, 240 * self.params.updown_scale_factor)
                 x_dec = self.diff_model.model_det.upsample(x_dec)
@@ -362,14 +379,17 @@ class RolloutFinetuner(Trainer):
 
             # Scale and backward for this step; accumulate gradients across steps.
             # Dividing by num_rollout here matches the averaging done at the end.
-            self.scaler.scale(step_loss / num_rollout).backward()
+            with nvtx_range("backward"):
+                self.scaler.scale(step_loss / num_rollout).backward()
 
             # Accumulate scalar logging values only (no graph retained).
+            nvtx_push("item_sync")
             total_crps_sfc    += crps_sfc.item()
             total_crps_ua     += crps_ua.item()
             total_crps_diag   += crps_diag.item()
             total_precip_rmse += precip_rmse.item()
             total_loss        += step_loss.item()
+            nvtx_pop()
 
             # Advance state: pick a random ensemble member as the next IC.
             # This preserves spread and avoids the mean-collapse that degrades
@@ -389,7 +409,10 @@ class RolloutFinetuner(Trainer):
             del x_si, x_dec, skip, skip_expanded, output, output_surface, output_upper_air
             del output_2D, pred_sfc, pred_ua, pred_diag, step_loss, crps_sfc, crps_ua
             del crps_diag, precip_rmse
-            torch.cuda.empty_cache()
+            # No torch.cuda.empty_cache() here: with expandable_segments every
+            # call unmapped the cached memory and the next step mapped it back
+            # (~1 s per call, two calls per rollout step).
+            nvtx_pop()  # rollout_step
 
         return (total_loss        / num_rollout,
                 total_crps_sfc    / num_rollout,
@@ -410,7 +433,8 @@ class RolloutFinetuner(Trainer):
             sampler = self.train_samplers[year_idx]
             if sampler is not None:
                 sampler.set_epoch(self.epoch)
-            for i, data in enumerate(loader):
+            for i, data in enumerate(timed_iter(loader)):
+                self.prof.step()
                 if self.params.mode == 'test' and i >= self.params.test_iterations:
                     break
 
@@ -418,8 +442,9 @@ class RolloutFinetuner(Trainer):
                 num_rollout = self.current_rollout_steps
 
                 # Unpack: vbc (B, max_steps+1, C, H, W), targets (B, max_steps, C, ...)
-                input_surface, input_upper_air, target_surface, target_upper_air, \
-                    target_diagnostic, varying_boundary_data = self._prepare_inputs_batch_rollout(data)
+                with nvtx_range("h2d"):
+                    input_surface, input_upper_air, target_surface, target_upper_air, \
+                        target_diagnostic, varying_boundary_data = self._prepare_inputs_batch_rollout(data)
 
                 # Slice to current rollout horizon
                 target_surface   = target_surface[:, :num_rollout]
@@ -445,13 +470,14 @@ class RolloutFinetuner(Trainer):
                     num_samples=num_samples,
                 )
 
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    [p for p in self.diff_model.parameters() if p.requires_grad],
-                    max_norm=1.0,
-                )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                with nvtx_range("optimizer"):
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        [p for p in self.diff_model.parameters() if p.requires_grad],
+                        max_norm=1.0,
+                    )
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                 if i % 100 == 0:
                     logging.info(
                         f"[rollout-finetune] epoch={self.epoch} iter={self.iters} "
@@ -470,7 +496,12 @@ class RolloutFinetuner(Trainer):
                     }, step=self.iters)
 
                 if self.iters % 50 == 0:
-                    self._save(f"rollout_ckpt_{self.iters}.tar")
+                    with nvtx_range("checkpoint_save"):
+                        self._save(f"rollout_ckpt_{self.iters}.tar")
+
+                if self.val_every > 0 and self.iters % self.val_every == 0:
+                    with nvtx_range("validate_crps_ssr"):
+                        self.validate_crps_ssr()
 
         return {'train_crps_loss': loss_val, 'epoch': self.epoch}
 
@@ -530,6 +561,8 @@ if __name__ == '__main__':
                         help='Rollout step count to start from (default 1)')
     parser.add_argument('--finetune_ckpt',        default=None, type=str,
                         help='Path to a rollout checkpoint to resume from')
+    parser.add_argument('--val_every',            default=0, type=int,
+                        help='Run CRPS/SSR validation every N iterations (0 = never)')
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
@@ -579,6 +612,7 @@ if __name__ == '__main__':
     params['best_checkpoint_path']  = os.path.join(expDir, 'training_checkpoints/best_ckpt.tar')
     params['resuming']              = False
     params['run_iter']              = args.run_iter
+    params['val_every']             = args.val_every
     params['log_to_wandb']         = (world_rank == 0) and params['log_to_wandb']
 
     trainer = RolloutFinetuner(

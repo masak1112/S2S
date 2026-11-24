@@ -26,6 +26,7 @@ import argparse
 from utils.YParams import YParams
 import torch.distributed as dist
 from torch.amp import autocast, GradScaler
+from utils.profiling import nvtx_range, nvtx_push, nvtx_pop, timed_iter, ProfileWindow
 
 
 if not dist.is_initialized():
@@ -76,6 +77,9 @@ class DiffusionTrainer(Trainer):
         self.wandb_enabled = bool(getattr(self.params, "log_to_wandb", False) and wandb.run is not None)
         if getattr(self.params, "log_to_wandb", False) and not self.wandb_enabled and self.world_rank == 0:
             logging.warning("W&B logging is enabled in config, but wandb.init() is not active. Skipping wandb.log calls.")
+        self.prof = ProfileWindow("train_diffusion", self.world_rank)
+        # Run validation_diffusion() every N iterations (0 = never, as before).
+        self.val_every = int(getattr(self.params, 'val_every', 0))
         
  
     def _build_optimizer(self):
@@ -238,7 +242,8 @@ class DiffusionTrainer(Trainer):
       
             data_iter = iter(train_data_loader)
             data = next(data_iter)
-            for i, data in enumerate(train_data_loader):
+            for i, data in enumerate(timed_iter(train_data_loader)):
+                self.prof.step()
                 if i % 100 == 0:
                     logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                     
@@ -249,14 +254,15 @@ class DiffusionTrainer(Trainer):
                 else:
                 
                     self.iters += 1
-                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
+                    with nvtx_range("h2d"):
+                        input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
                     self.optimizer.zero_grad()
 
                     do_scatter = (self.iters % 1000 == 0) and (self.world_rank == 0)
                     _scatter_dir = os.path.dirname(self.params.checkpoint_path_diff)
                     scatter_path = os.path.join(_scatter_dir, "scatter_tmp.png")
 
-                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    with nvtx_range("forward"), torch.autocast(device_type='cuda', dtype=torch.float16):
                         loss = self.diff_model.training_step(surface_in = input_surface,
                                                              constant_boundary = self.constant_boundary_data,
                                                              varying_boundary = varying_boundary_data,
@@ -266,7 +272,9 @@ class DiffusionTrainer(Trainer):
                                                              plot_freq = 200, iter = self.iters,
                                                              plot_scatter = do_scatter, scatter_path = scatter_path)
 
-                    self.scaler.scale(loss).backward()
+                    with nvtx_range("backward"):
+                        self.scaler.scale(loss).backward()
+                    nvtx_push("grad_allreduce")
                     if self.sync_grads:
                         # Average the still-SCALED grads BEFORE unscale_: the
                         # scaler records found_inf during unscale_, so reducing
@@ -279,12 +287,14 @@ class DiffusionTrainer(Trainer):
                             if p.grad is not None:
                                 dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
                                 p.grad.div_(ws)
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
-                    scale_before = self.scaler.get_scale()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                    scale_after = self.scaler.get_scale()
+                    nvtx_pop()
+                    with nvtx_range("optimizer"):
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(self.diff_model.parameters(), max_norm=1.0)
+                        scale_before = self.scaler.get_scale()
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                        scale_after = self.scaler.get_scale()
                     if scale_after < scale_before:
                         print("overflow happened")
 
@@ -313,7 +323,11 @@ class DiffusionTrainer(Trainer):
                         logging.info(f"Updated last checkpoint: {last_path}")
                         if self.wandb_enabled:
                             wandb.save(last_path, base_path=temp_path)
-                        
+
+                    if self.val_every > 0 and self.iters % self.val_every == 0:
+                        with nvtx_range("validation"):
+                            self.validation_diffusion()
+
         # pbar.close()
         # pbar.updac te(1)
         logs ={"train_loss": loss, "epoch": self.epoch}
@@ -342,6 +356,24 @@ class DiffusionTrainer(Trainer):
             #     self.validation_diffusion()
 
 
+    def _prepare_valid_batch(self, data):
+        """Day-1 inputs and targets from the validate=True loader.
+
+        That loader returns (surf, ua, tgt_sfc[B, L, ...], tgt_ua[B, L, ...],
+        [tgt_diag[B, L, ...],] vbc[B, L+1, ...], start_time) with L =
+        forecast_lead_times[-1]. The SI loss is a one-step loss, so it uses the
+        first lead and the boundary valid at the input time, exactly what the
+        training loader provides.
+        """
+        if self.params.has_diagnostic:
+            surf, ua, tgt_sfc, tgt_ua, _tgt_diag, vbc, _t = data
+        else:
+            surf, ua, tgt_sfc, tgt_ua, vbc, _t = data
+
+        def to_dev(x):
+            return x.to(self.device, dtype=torch.float32, non_blocking=True)
+        return to_dev(surf), to_dev(ua), to_dev(tgt_sfc[:, 0]), to_dev(tgt_ua[:, 0]), to_dev(vbc[:, 0])
+
     def validation_diffusion(self):
         self.diff_model.eval()
         valid_start = time.time()
@@ -361,16 +393,17 @@ class DiffusionTrainer(Trainer):
 
         with torch.no_grad():
             for i, data in tqdm.tqdm(
-                enumerate(self.valid_data_loader, 0),
+                enumerate(timed_iter(self.valid_data_loader, "val_data_wait"), 0),
                 total=total_valid_batches,
                 bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'
             ):
                 if max_valid_batches > 0 and i >= max_valid_batches:
                     break
 
-                input_surface, input_upper_air, target_surface, target_upper_air, _,  varying_boundary_data = self._prepare_inputs_batch(data)
+                input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = \
+                    self._prepare_valid_batch(data)
 
-                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                with nvtx_range("val_forward"), torch.autocast(device_type='cuda', dtype=torch.float16):
                     val_loss = self.diff_model.training_step(
                         surface_in=input_surface,
                         constant_boundary=self.constant_boundary_data,
@@ -407,7 +440,9 @@ class DiffusionTrainer(Trainer):
                 valid_time,
             )
             if self.wandb_enabled:
-                wandb.log(logs, step=self.epoch)
+                # step=iters: validation now runs inside the epoch, and wandb
+                # drops entries whose step is below the last logged one.
+                wandb.log(logs, step=self.iters)
 
         self.diff_model.train()
         return logs
@@ -449,6 +484,8 @@ if __name__ == "__main__":
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
     parser.add_argument("--fresh_start", default=False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+    parser.add_argument("--val_every", default=0, type=int,
+                        help="Run validation_diffusion() every N iterations (0 = never)")
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     parser.add_argument("--year", default=1979, type=int, help="if enbale_nvme is true, then use the year data")
@@ -464,6 +501,7 @@ if __name__ == "__main__":
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
+    params['val_every'] = args.val_every
 
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:

@@ -70,6 +70,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.profiling import nvtx_range, nvtx_push, nvtx_pop, ProfileWindow
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -339,6 +340,7 @@ class PostprocessInference(Trainer):
         if self.pp_model is None:
             return sfc, ua, diag
 
+        nvtx_push("pp_correction")
         member = self._gather_fields(sfc, ua, diag)
         lead_frac = torch.full((member.shape[0],),
                                (step + 1) / self.max_lead_steps,
@@ -348,7 +350,9 @@ class PostprocessInference(Trainer):
             n_steps=int(getattr(self.params, 'pp_sample_steps', 20)),
         )
         corrected = member + self.blend * residual
-        return self._scatter_fields(corrected, sfc, ua, diag)
+        out = self._scatter_fields(corrected, sfc, ua, diag)
+        nvtx_pop()
+        return out
 
     # ------------------------------------------------------------------
     # Date selection
@@ -477,8 +481,11 @@ class PostprocessInference(Trainer):
         from torch.utils.data import default_collate
 
         t0 = time.time()
+        prof = ProfileWindow("inference_postprocess_si", world_rank)
         for batch_idx in date_idxs:
-            data = default_collate([self.valid_dataset[batch_idx]])
+            prof.step()
+            with nvtx_range("load_date_sample"):
+                data = default_collate([self.valid_dataset[batch_idx]])
             if self.params.has_diagnostic:
                 in_sfc0, in_ua0, _ts, _tu, _td, vbc, times = data
             else:
@@ -499,6 +506,7 @@ class PostprocessInference(Trainer):
             base_traj = None  # filled lazily when self.share_base
 
             for ens_id in my_members:
+                nvtx_push("member")
                 # Resume support: a member already written by an earlier run is
                 # skipped before any GPU work, so an interrupted job can be
                 # relaunched with the same --run_num and will only fill gaps.
@@ -511,6 +519,7 @@ class PostprocessInference(Trainer):
                         logging.info(
                             f"rank {world_rank}: skipping existing "
                             f"{os.path.basename(done[0])}")
+                        nvtx_pop()
                         continue
 
                 # Seed per (init date, member) so members differ, runs are
@@ -535,6 +544,7 @@ class PostprocessInference(Trainer):
                 s_cur, ua_cur = in_sfc0, in_ua0
 
                 for step in range(steps):
+                    nvtx_push("lead_step")
                     if self.share_base:
                         # Deterministic base: roll out once per date, reuse
                         # for every member. The per-member seed above still
@@ -545,8 +555,9 @@ class PostprocessInference(Trainer):
                             t.to(self.device, non_blocking=True) if t is not None else None
                             for t in base_traj[step])
                     else:
-                        p_sfc, p_ua, p_diag = self._base_step(
-                            s_cur, ua_cur, cb, vbc[:, step])
+                        with nvtx_range("base_step"):
+                            p_sfc, p_ua, p_diag = self._base_step(
+                                s_cur, ua_cur, cb, vbc[:, step])
 
                     # Correct in normalised space, before inv_transform.
                     c_sfc, c_ua, c_diag = self._apply_correction(
@@ -554,6 +565,7 @@ class PostprocessInference(Trainer):
 
                     # Saved output is the corrected field; the trajectory
                     # continues from whichever `--feedback` selects.
+                    nvtx_push("d2h_inv_transform")
                     out_sfc[:, step + 1] = self.valid_dataset.surface_inv_transform(
                         c_sfc.cpu()).numpy()
                     out_ua[:, step + 1] = self.valid_dataset.upper_air_inv_transform(
@@ -565,14 +577,18 @@ class PostprocessInference(Trainer):
                             if vname in nonneg_vars:
                                 diag_phys[:, vi] = np.clip(diag_phys[:, vi], 0.0, None)
                         out_diag[:, step + 1] = diag_phys
+                    nvtx_pop()
 
                     if self.feedback == 'corrected':
                         s_cur, ua_cur = c_sfc, c_ua
                     else:
                         s_cur, ua_cur = p_sfc, p_ua
+                    nvtx_pop()  # lead_step
 
-                self.save_prediction(out_sfc, out_ua, start_times,
-                                     diagnostic_prediction=out_diag, ens_id=ens_id)
+                with nvtx_range("save_prediction"):
+                    self.save_prediction(out_sfc, out_ua, start_times,
+                                         diagnostic_prediction=out_diag, ens_id=ens_id)
+                nvtx_pop()  # member
 
             logging.info(f"rank {world_rank}: batch {batch_idx} done "
                          f"({time.time() - t0:.0f}s elapsed)")
@@ -688,7 +704,8 @@ class PostprocessInference(Trainer):
             dataset["level"] = dataset["level"].astype('float32').assign_attrs(
                 {'long_name': 'Level', 'unit': 'hPa'})
             dataset = dataset.chunk({'time': 1, "level": 1})
-            dataset.to_netcdf(os.path.join(savedir, filename), 'w')
+            with nvtx_range("to_netcdf"):
+                dataset.to_netcdf(os.path.join(savedir, filename), 'w')
             logging.info(f"saved {filename}")
 
 

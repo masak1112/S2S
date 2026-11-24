@@ -1,5 +1,6 @@
 
 import math
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,6 +20,129 @@ from torch.utils.checkpoint import checkpoint
 Tensor = torch.Tensor
 
 
+# ---------------------------------------------------------------------------
+# Fast drop-in kernels for the UNet (see v2.0/profiling/PROFILING_REPORT.md)
+#
+# Two stock PyTorch kernels take most of the GPU time of every script that runs
+# ConUNet_1degV2:
+#   * nn.GroupNorm statistics: one thread block per (sample, group), i.e. 4-32
+#     blocks on a 132-SM H100 for this UNet at batch 1-8.
+#   * bilinear F.interpolate backward from the 8x8 cross-attention map to
+#     4050x480: gradient accumulation with heavily contended atomics.
+# The replacements compute the same functions and keep every parameter, so
+# checkpoints load unchanged. S2S_FAST_KERNELS=0 restores the stock ops.
+# ---------------------------------------------------------------------------
+FAST_KERNELS = os.environ.get("S2S_FAST_KERNELS", "1") == "1"
+
+
+class _GroupNormFunction(torch.autograd.Function):
+    """GroupNorm whose statistics come from torch.var_mean.
+
+    var_mean's reduction splits each (sample, group) row over many blocks.
+    The output is formed as x * a + b with a = rstd * weight and
+    b = bias - mean * a, the same fused parameters PyTorch's CUDA kernel uses,
+    and the backward is PyTorch's own native_group_norm_backward, so saved
+    activations and gradients match nn.GroupNorm.
+    """
+
+    @staticmethod
+    @torch.amp.custom_fwd(device_type="cuda", cast_inputs=torch.float32)
+    def forward(ctx, x, weight, bias, num_groups, eps):
+        x = x.contiguous()
+        n, c = x.shape[0], x.shape[1]
+        hxw = x.numel() // (n * c)
+        var, mean = torch.var_mean(x.view(n, num_groups, -1), dim=-1, correction=0)
+        rstd = torch.rsqrt(var + eps)                                   # (N, G)
+        a = rstd.repeat_interleave(c // num_groups, dim=1)              # (N, C)
+        b = -mean.repeat_interleave(c // num_groups, dim=1) * a
+        if weight is not None:
+            a = a * weight
+            b = b * weight + bias
+        shape = (n, c) + (1,) * (x.dim() - 2)
+        y = torch.addcmul(b.view(shape), x, a.view(shape))
+        ctx.save_for_backward(x, weight, mean, rstd)
+        ctx.meta = (n, c, hxw, num_groups)
+        return y
+
+    @staticmethod
+    @torch.amp.custom_bwd(device_type="cuda")
+    def backward(ctx, grad_y):
+        x, weight, mean, rstd = ctx.saved_tensors
+        n, c, hxw, g = ctx.meta
+        need = [ctx.needs_input_grad[0],
+                weight is not None and ctx.needs_input_grad[1],
+                weight is not None and ctx.needs_input_grad[2]]
+        gx, gw, gb = torch.ops.aten.native_group_norm_backward(
+            grad_y.contiguous(), x, mean, rstd, weight, n, c, hxw, g, need)
+        return gx, gw, gb, None, None
+
+
+class FastGroupNorm(nn.GroupNorm):
+    """nn.GroupNorm with a parallel statistics pass; same parameters/state_dict."""
+
+    def forward(self, x):
+        return _GroupNormFunction.apply(x, self.weight, self.bias, self.num_groups, self.eps)
+
+
+def GroupNorm(num_groups, num_channels, eps=1e-5, affine=True):
+    cls = FastGroupNorm if FAST_KERNELS else nn.GroupNorm
+    return cls(num_groups, num_channels, eps=eps, affine=affine)
+
+
+_interp_matrices = {}
+
+
+def _interp_matrix(n_in, n_out, align_corners, device):
+    """(n_out, n_in) weights of 1-D linear interpolation, using the same source
+    coordinate convention as F.interpolate(mode='bilinear', size=...)."""
+    key = (n_in, n_out, align_corners, device)
+    m = _interp_matrices.get(key)
+    if m is None:
+        dst = torch.arange(n_out, dtype=torch.float64, device=device)
+        if align_corners:
+            src = dst * ((n_in - 1) / (n_out - 1)) if n_out > 1 else torch.zeros_like(dst)
+        else:
+            src = ((dst + 0.5) * (n_in / n_out) - 0.5).clamp(min=0)
+        i0 = src.floor().long().clamp(max=n_in - 1)
+        i1 = (i0 + 1).clamp(max=n_in - 1)
+        w1 = src - i0
+        m = torch.zeros(n_out, n_in, dtype=torch.float64, device=device)
+        m.scatter_add_(1, i0[:, None], (1 - w1)[:, None])
+        m.scatter_add_(1, i1[:, None], w1[:, None])
+        m = m.float()
+        _interp_matrices[key] = m
+    return m
+
+
+def interpolate_bilinear(x, size, align_corners):
+    """F.interpolate(x, size, mode='bilinear', align_corners=...).
+
+    When a gradient is needed, compute it as A_h @ x @ A_w^T in float32 so the
+    backward is two matmuls instead of upsample_bilinear2d_backward's atomics.
+    Without grad (sampling / inference) the stock kernel is used: its forward
+    is fast and this keeps inference outputs unchanged.
+    """
+    if not (FAST_KERNELS and torch.is_grad_enabled() and x.requires_grad):
+        return F.interpolate(x, size=size, mode="bilinear", align_corners=align_corners)
+    h, w = x.shape[-2:]
+    a_h = _interp_matrix(h, size[0], align_corners, x.device)
+    a_w = _interp_matrix(w, size[1], align_corners, x.device)
+    with torch.autocast(device_type=x.device.type, enabled=False):
+        return torch.matmul(a_h, torch.matmul(x.float(), a_w.t()))
+
+
+class BilinearUpsample(nn.Module):
+    """nn.Upsample(scale_factor=s, mode='bilinear') through interpolate_bilinear."""
+
+    def __init__(self, scale_factor, align_corners):
+        super().__init__()
+        self.scale_factor = int(scale_factor)
+        self.align_corners = align_corners
+
+    def forward(self, x):
+        h, w = x.shape[-2:]
+        return interpolate_bilinear(x, (h * self.scale_factor, w * self.scale_factor),
+                                    self.align_corners)
 
 
 def Downsample_1deg(dim_in, dim_out, scale=2):
@@ -39,7 +163,7 @@ def Upsample_1deg(dim_in, dim_out, scale=2):
     class UpsampleModule(nn.Module):
         def __init__(self):
             super(UpsampleModule, self).__init__()
-            self.upsample = nn.Upsample(scale_factor=scale, mode='bilinear', align_corners=True)
+            self.upsample = BilinearUpsample(scale_factor=scale, align_corners=True)
             self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=3, padding=1)
 
         def forward(self, x):
@@ -74,7 +198,7 @@ class Block(nn.Module):
     def __init__(self, dim_in, dim_out, groups=8):
         super().__init__()
         self.proj = nn.Conv2d(dim_in, dim_out, 3, padding=1)
-        self.norm = nn.GroupNorm(groups, dim_out)
+        self.norm = GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
 
     def forward(self, x, scale_shift=None):
@@ -151,7 +275,7 @@ class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super().__init__()
         self.fn = fn
-        self.norm = nn.GroupNorm(1, dim)
+        self.norm = GroupNorm(1, dim)
 
     def forward(self, x):
         x = self.norm(x)
@@ -173,8 +297,8 @@ class CrossAttentionConditionFuse(nn.Module):
         self.to_k = nn.Conv2d(dim_cond, inner_dim, kernel_size=1, bias=False)
         self.to_v = nn.Conv2d(dim_cond, inner_dim, kernel_size=1, bias=False)
         self.to_out = nn.Conv2d(inner_dim, dim_x, kernel_size=1)
-        self.norm_x = nn.GroupNorm(1, dim_x)
-        self.norm_c = nn.GroupNorm(1, dim_cond)
+        self.norm_x = GroupNorm(1, dim_x)
+        self.norm_c = GroupNorm(1, dim_cond)
         # gate_init=0 makes the branch a no-op at start AND gives to_out zero
         # gradient; with Adam + coupled weight decay the whole branch then
         # decays to denormals (seen in si_c1 / si_c1_full_state). Use a small
@@ -203,7 +327,7 @@ class CrossAttentionConditionFuse(nn.Module):
 
         out = out.permute(0, 1, 3, 2).contiguous().view(b, self.heads * self.dim_head, q_h, q_w)
         out = self.to_out(out)
-        out = F.interpolate(out, size=(h, w), mode="bilinear", align_corners=False)
+        out = interpolate_bilinear(out, (h, w), align_corners=False)
         return x + self.gate * out
     
 

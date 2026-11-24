@@ -69,7 +69,9 @@ import xarray as xr
 import warnings
 import datetime
 import pandas as pd
+from utils.profiling import nvtx_range, nvtx_wrap
 
+@nvtx_wrap("h5_read")
 def get_data_given_path(path, variables):
     with h5py.File(path, 'r') as f:
         data = {
@@ -496,6 +498,7 @@ class GetDataset(Dataset):
         return len(self.inference_idxs)
 
 
+    @nvtx_wrap("dataset_getitem")
     def __getitem__(self, index):
         #print('Loaded Boundary Data')
         #self.dates = self._get_dates(hour_step=params.timedelta_hours)

@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from networks.diffusion import ConditionalDiffusionModel
 from networks.diffusion import ConUNet_1degV2
 from networks.vae import VAE
+from utils.profiling import nvtx_range, nvtx_push, nvtx_pop
 
 
 
@@ -167,18 +168,21 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         ts  = lower + (upper - lower)*torch.rand(size=(B,), device=device)
 
         # Encode stochastic condition (VAE) and deterministic features
-        z = self._encode_vae(surface, upper_air_in)
-        x, skip = self._encode_det(surface, upper_air_in, train=True)
+        with nvtx_range("encode_vae"):
+            z = self._encode_vae(surface, upper_air_in)
+        with nvtx_range("encode_det"):
+            x, skip = self._encode_det(surface, upper_air_in, train=True)
 
         # Ground-truth t+1 latent, encoded through the same frozen Pangu path.
-        with torch.no_grad():
+        with torch.no_grad(), nvtx_range("encode_det_target"):
             x_true, _ = self._encode_det(target_surface, target_upper_air, train=False)
 
         # Train SI to map N(0, x_sigma) -> x (Pangu deterministic forecast).
         # The SDE integration (brownian gamma) creates stochastic spread at inference.
         # x (Pangu latent) is also concatenated with the path point so the UNet has
         # full state information; this requires dim_in=20 in the UNet.
-        x_sigma = x.std().item()
+        with nvtx_range("x_std_item_sync"):
+            x_sigma = x.std().item()
 
         # if torch.rand(1).item() < 0.01:
         #     print(f"[SI spread diag] x std={x_sigma:.4f}  x_true std={x_true.std().item():.4f}")
@@ -198,8 +202,9 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # Concatenate Pangu latent x as additional channels so the UNet can
         # condition its drift on the full current atmospheric state.
         noise    = torch.randn_like(base).to(device)
-        drift_p  = self.unet(torch.cat([It_p, x], dim=1), z, ts)
-        drift_m  = self.unet(torch.cat([It_m, x], dim=1), z, ts)
+        with nvtx_range("unet_fwd_x2"):
+            drift_p  = self.unet(torch.cat([It_p, x], dim=1), z, ts)
+            drift_m  = self.unet(torch.cat([It_m, x], dim=1), z, ts)
 
         target_p = dIdt - noise * self.gamma_dot(ts)
         target_m = dIdt + noise * self.gamma_dot(ts)
@@ -326,9 +331,10 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         shape = (z.size(0), C, H, W)
 
-        output = self.sample(model=model_diff, shape=shape, x=x, cond=z, device=device,
-                             temperature=temperature, mc_dropout=mc_dropout,
-                             source_sigma=source_sigma)
+        with nvtx_range("si_sample"):
+            output = self.sample(model=model_diff, shape=shape, x=x, cond=z, device=device,
+                                 temperature=temperature, mc_dropout=mc_dropout,
+                                 source_sigma=source_sigma)
         return output
 
 
@@ -409,8 +415,9 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         # Encode — all frozen, no grad needed through SI
         with torch.no_grad():
-            z = self._encode_vae(surface, upper_air_in)
-            x, skip = self._encode_det(surface, upper_air_in, train=False)
+            with nvtx_range("encode"):
+                z = self._encode_vae(surface, upper_air_in)
+                x, skip = self._encode_det(surface, upper_air_in, train=False)
             # x: [B, Pl, seq, embed*scale], skip: [B, seq, embed]
             Pl_det = x.shape[1]
             Lat, Lon = self.downscale_resolution_det[1], self.downscale_resolution_det[2]
@@ -430,6 +437,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         BS = x_si.shape[0]  # B * num_samples
 
         # Decoder — gradients flow through these layers only
+        nvtx_push("decode")
         Pl_est, Lat_est, Lon_est = self.model_det.EST_input_resolution
         x_dec = x_si.reshape(BS, -1, 240 * self.params.updown_scale_factor)
         x_dec = self.model_det.upsample(x_dec)
@@ -446,7 +454,9 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         pred_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
             BS, -1, pred_surface.shape[-2], pred_surface.shape[-1])
 
+        nvtx_pop()
         # CRPS — targets repeated to match [B*num_samples, ...]
+        nvtx_push("crps_loss")
         target_sfc_rep = target_surface.repeat_interleave(num_samples, dim=0)
         target_ua_rep = target_upper_air.repeat_interleave(num_samples, dim=0)
         crps_loss_fn = Latitude_weighted_CRPSLoss(latitudes.to(device), num_ensemble_members=num_samples)
@@ -477,6 +487,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
                     precip_rmse = precip_rmse + torch.sqrt((lat_w * (pred_precip - tgt_precip) ** 2).mean())
                     loss = loss + 0.1 * precip_rmse
 
+        nvtx_pop()
         import logging
         logging.info(
             f"[CRPS finetune] sfc={crps_sfc.item():.4f}  ua={crps_ua.item():.4f}  "
@@ -525,6 +536,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # 1. Encode condition
         #######VAE ENCODER START ########
 
+        nvtx_push("encode")
         z  = self._encode_vae(surface_in, upper_air_in)
         if latent_cond == 'off':
             # Ablation: drop the SST conditioning. Same shape as the trained
@@ -548,6 +560,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         # SI is trained with source N(0, x.std()), target = x, so use x.std() here.
         # Can be overridden via config source_sigma for tuning.
         source_sigma = float(getattr(self.params, 'source_sigma', x.std().item())) * 1.5
+        nvtx_pop()
 
         if deterministic_latent:
             # Ablation bypass: skip the SI entirely and pass the Pangu
@@ -581,6 +594,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
         x = x.reshape(BS, -1, 240*self.params.updown_scale_factor)
 
         ######## DETERMINISTIC DECODER START ######
+        nvtx_push("decode")
         x = self.model_det.upsample(x)
         x = self.model_det.layer4(x, train=False)
         # Expand skip so each sample gets its own copy of the skip connection.
@@ -602,6 +616,7 @@ class StochasticInterpolant(ConditionalDiffusionModel):
 
         if mc_dropout:
             self.model_det.eval()
+        nvtx_pop()
 
         return output_surface, output_upper_air, output_diagnostic 
         

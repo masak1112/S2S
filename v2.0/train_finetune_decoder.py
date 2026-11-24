@@ -27,6 +27,7 @@ from networks.stochastic_interpolant import StochasticInterpolant
 from train import Trainer
 from utils import logging_utils
 from utils.YParams import YParams
+from utils.profiling import nvtx_range, nvtx_push, nvtx_pop, timed_iter, ProfileWindow
 
 if not dist.is_initialized():
     dist.init_process_group(backend='nccl', init_method='env://')
@@ -75,6 +76,9 @@ class DecoderFinetuner(Trainer):
 
         self.get_dataset()
         self.scaler = GradScaler()
+        self.prof = ProfileWindow("finetune_decoder", world_rank)
+        # Checkpoint + CRPS/SSR validation interval in iterations.
+        self.val_every = int(getattr(params, 'val_every', 200))
         self.wandb_enabled = bool(getattr(params, 'log_to_wandb', False) and wandb.run is not None)
         if self.wandb_enabled and world_rank == 0:
             wandb.define_metric('iters')
@@ -201,6 +205,7 @@ class DecoderFinetuner(Trainer):
         #   (surf, ua, tgt_surf_steps, tgt_ua_steps, [tgt_diag_steps,] vbc, start_time)
         # vbc shape: [B, max_lead+1, C_vbc, H, W]
         ic_list = []
+        nvtx_push("val_collect_ics")
         for data in self.valid_data_loader:
             if self.params.has_diagnostic:
                 surf, ua, _tgt_surf, _tgt_ua, _tgt_diag, vbc, _t = data
@@ -219,6 +224,7 @@ class DecoderFinetuner(Trainer):
                     break
             if len(ic_list) >= NUM_IC:
                 break
+        nvtx_pop()
 
         # Storage: results[var_label][lead_day] = list of (crps, skill, spread, rmse) per IC
         results = {}
@@ -243,10 +249,12 @@ class DecoderFinetuner(Trainer):
             ens_diag = []
 
             for ens_id in range(NUM_ENS):
+                nvtx_push("val_member")
                 s_cur = surf0.clone()
                 ua_cur = ua0.clone()
                 traj_s, traj_ua, traj_d = [], [], []
                 for step in range(max_steps):
+                    nvtx_push("val_base_step")
                     out_s, out_ua, out_d = self.diff_model.prediction(
                         surface_in=s_cur,
                         constant_boundary=self.constant_boundary_data[:1],
@@ -260,12 +268,15 @@ class DecoderFinetuner(Trainer):
                     traj_ua.append(out_ua)
                     traj_d.append(out_d)
                     s_cur, ua_cur = out_s, out_ua
+                    nvtx_pop()
 
                 ens_surf.append(torch.stack(traj_s, dim=1))    # [1, steps, C_sfc, H, W]
                 ens_ua.append(torch.stack(traj_ua, dim=1))     # [1, steps, C_ua, P, H, W]
                 ens_diag.append(torch.stack(traj_d, dim=1))    # [1, steps, C_diag, H, W]
+                nvtx_pop()  # val_member
 
             # ens_surf: list of [1, steps, ...] → stack → [M, steps, ...]
+            nvtx_push("val_metrics")
             ens_surf_t = torch.cat(ens_surf, dim=0)   # [M, steps, C, H, W]
             ens_ua_t = torch.cat(ens_ua, dim=0)
             ens_diag_t = torch.cat(ens_diag, dim=0)
@@ -302,6 +313,7 @@ class DecoderFinetuner(Trainer):
                         'spread': spread_val.item(),
                         'ssr': ssr.item(),
                     })
+            nvtx_pop()  # val_metrics
 
         if world_rank == 0:
             log_lines = [f"[val@{self.iters}] CRPS/SSR validation ({NUM_IC} ICs, {NUM_ENS} members)"]
@@ -338,17 +350,19 @@ class DecoderFinetuner(Trainer):
         num_samples = int(getattr(self.params, 'crps_ensemble_size', 2))
 
         for year_idx, loader in enumerate(self.train_data_loaders):
-            for i, data in enumerate(loader):
+            for i, data in enumerate(timed_iter(loader)):
+                self.prof.step()
                 if self.params.mode == 'test' and i >= self.params.test_iterations:
                     break
 
                 self.iters += 1
-                input_surface, input_upper_air, target_surface, target_upper_air, \
-                    target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
+                with nvtx_range("h2d"):
+                    input_surface, input_upper_air, target_surface, target_upper_air, \
+                        target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
 
                 self.optimizer.zero_grad()
 
-                with autocast(device_type='cuda', dtype=torch.float16):
+                with nvtx_range("forward"), autocast(device_type='cuda', dtype=torch.float16):
                     loss, crps_sfc, crps_ua, crps_diag, precip_rmse = self.diff_model.crps_finetune_step(
                         surface_in=input_surface,
                         constant_boundary=self.constant_boundary_data,
@@ -361,14 +375,16 @@ class DecoderFinetuner(Trainer):
                         target_diagnostic=target_diagnostic if self.params.has_diagnostic else None,
                     )
 
-                self.scaler.scale(loss).backward()
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    [p for p in self.diff_model.parameters() if p.requires_grad],
-                    max_norm=1.0,
-                )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                with nvtx_range("backward"):
+                    self.scaler.scale(loss).backward()
+                with nvtx_range("optimizer"):
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        [p for p in self.diff_model.parameters() if p.requires_grad],
+                        max_norm=1.0,
+                    )
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
 
                 loss_val = loss.item()
                 if i % 100 == 0:
@@ -384,9 +400,11 @@ class DecoderFinetuner(Trainer):
                         'lr': self.optimizer.param_groups[0]['lr'],
                     }, step=self.iters)
 
-                if self.iters % 200 == 0:
-                    self._save(f"finetune_ckpt_{self.iters}.tar")
-                    self.validate_crps_ssr()
+                if self.iters % self.val_every == 0:
+                    with nvtx_range("checkpoint_save"):
+                        self._save(f"finetune_ckpt_{self.iters}.tar")
+                    with nvtx_range("validate_crps_ssr"):
+                        self.validate_crps_ssr()
 
         return {'train_crps_loss': loss_val, 'epoch': self.epoch}
 
@@ -435,6 +453,8 @@ if __name__ == '__main__':
     parser.add_argument('--local-rank', type=int)
     parser.add_argument('--finetune_ckpt', default=None, type=str,
                         help='Path to a finetune checkpoint to resume from')
+    parser.add_argument('--val_every', default=200, type=int,
+                        help='Save a checkpoint and run CRPS/SSR validation every N iterations')
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
@@ -481,6 +501,7 @@ if __name__ == '__main__':
     params['resuming'] = False
     params['run_iter'] = args.run_iter
     params['log_to_wandb'] = (world_rank == 0) and params['log_to_wandb']
+    params['val_every'] = args.val_every
 
     trainer = DecoderFinetuner(params, world_rank)
     if args.finetune_ckpt:
